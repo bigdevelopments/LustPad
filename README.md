@@ -126,10 +126,10 @@ Libraries we lean on:
 
 ## License
 
-No license file is included yet. Add one (e.g. MIT) before publishing if you want open reuse clarified.
+[MIT](LICENSE) — free to use, modify, and redistribute, including commercially, with attribution.
 
 ---
 
 ## Status
 
-Actively useful for sketching and exporting pad libraries. Not a realtime instrument plugin. Contributions and forks welcome once the repo is public.
+Actively useful for sketching and exporting pad libraries. Not a realtime instrument plugin. Contributions and forks welcome.
