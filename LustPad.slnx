@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="LustPad.App/LustPad.csproj" />
+  <Project Path="LustPad.Core.Tests/LustPad.Core.Tests.csproj" />
+  <Project Path="LustPad.Core/LustPad.Core.csproj" />
+</Solution>

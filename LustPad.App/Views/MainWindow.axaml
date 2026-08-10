@@ -1,0 +1,617 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:LustPad.ViewModels"
+        xmlns:ctrl="using:LustPad.Controls"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="800"
+        x:Class="LustPad.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="LustPad — Lush Evolving Pad Generator"
+        Width="1420" Height="860"
+        MinWidth="1100" MinHeight="640"
+        RequestedThemeVariant="Dark">
+
+  <Design.DataContext>
+    <vm:MainViewModel />
+  </Design.DataContext>
+
+  <!--
+    Fluent Slider is built as: 15px top + track + 15px bottom, 20×20 thumb, MinHeight 32.
+    Forcing Height on Slider clipped the thumb. Compact by overriding those theme metrics
+    so the full knob fits inside a short control (no clipping, still dense rows).
+  -->
+  <Window.Resources>
+    <x:Double x:Key="SliderHorizontalHeight">16</x:Double>
+    <GridLength x:Key="SliderPreContentMargin">0</GridLength>
+    <GridLength x:Key="SliderPostContentMargin">0</GridLength>
+    <x:Double x:Key="SliderHorizontalThumbWidth">14</x:Double>
+    <x:Double x:Key="SliderHorizontalThumbHeight">14</x:Double>
+    <x:Double x:Key="SliderVerticalThumbWidth">14</x:Double>
+    <x:Double x:Key="SliderVerticalThumbHeight">14</x:Double>
+    <CornerRadius x:Key="SliderThumbCornerRadius">7</CornerRadius>
+  </Window.Resources>
+
+  <Window.Styles>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Margin" Value="0,0,0,3"/>
+      <Setter Property="Foreground" Value="#C4B5FD"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="Foreground" Value="#A1A1AA"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Width" Value="78"/>
+      <Setter Property="Margin" Value="0,0,3,0"/>
+    </Style>
+    <Style Selector="TextBlock.val">
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="Foreground" Value="#E4E4E7"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Width" Value="40"/>
+      <Setter Property="Margin" Value="3,0,0,0"/>
+    </Style>
+    <Style Selector="TextBlock.hint">
+      <Setter Property="FontSize" Value="9"/>
+      <Setter Property="Foreground" Value="#52525B"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Margin" Value="0,2,0,0"/>
+    </Style>
+    <Style Selector="Slider">
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <!-- Do not set Height — Fluent sizes from resources; a fixed Height clips the thumb -->
+    </Style>
+    <Style Selector="ComboBox">
+      <Setter Property="MinHeight" Value="24"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Padding" Value="6,2"/>
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="MinHeight" Value="24"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Padding" Value="6,2"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="24"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Padding" Value="8,3"/>
+      <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="CheckBox">
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="MinHeight" Value="18"/>
+      <Setter Property="Margin" Value="0,1,0,0"/>
+      <Setter Property="Padding" Value="4,0,0,0"/>
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#18181B"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="BorderBrush" Value="#27272A"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Margin" Value="0,0,6,6"/>
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="#7C3AED"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Padding" Value="10,4"/>
+      <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="8" Background="#09090B">
+
+    <!-- Top bar -->
+    <Border DockPanel.Dock="Top" Background="#18181B" CornerRadius="6"
+            Padding="8,5" Margin="0,0,0,6" BorderBrush="#27272A" BorderThickness="1">
+      <Grid ColumnDefinitions="Auto,*">
+        <TextBlock Text="LustPad" FontSize="14" FontWeight="Bold" Foreground="#EDE9FE"
+                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+        <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="4" LineSpacing="4"
+                   VerticalAlignment="Center">
+          <ComboBox ItemsSource="{Binding BuiltInPresetNames}"
+                    SelectedItem="{Binding SelectedBuiltInPreset}"
+                    Width="120" VerticalAlignment="Center"/>
+          <Button Content="Load" Command="{Binding LoadBuiltInCommand}" ToolTip.Tip="Load built-in"/>
+          <Button Content="Save…" Command="{Binding SavePresetCommand}"/>
+          <Button Content="Open…" Command="{Binding LoadPresetCommand}"/>
+          <ComboBox ItemsSource="{Binding CharacterMacroNames}"
+                    SelectedItem="{Binding SelectedMacro}" Width="72"/>
+          <Button Content="Macro" Command="{Binding ApplyMacroCommand}"/>
+          <ComboBox ItemsSource="{Binding RandomizeScopeNames}"
+                    SelectedItem="{Binding SelectedRandomizeScope}" Width="100"/>
+          <Button Content="🎲" Command="{Binding RandomizeToneCommand}" ToolTip.Tip="Randomize"/>
+          <Button Content="A" Command="{Binding StoreSlotACommand}" ToolTip.Tip="Store A"/>
+          <Button Content="B" Command="{Binding StoreSlotBCommand}" ToolTip.Tip="Store B"/>
+          <Button Content="▶A" Command="{Binding PreviewSlotACommand}" IsEnabled="{Binding !IsBusy}"/>
+          <Button Content="▶B" Command="{Binding PreviewSlotBCommand}" IsEnabled="{Binding !IsBusy}"/>
+        </WrapPanel>
+      </Grid>
+    </Border>
+
+    <!-- Waveform / loop overview -->
+    <Border DockPanel.Dock="Top" Background="#18181B" CornerRadius="6"
+            Padding="8,4" Margin="0,0,0,6" BorderBrush="#27272A" BorderThickness="1">
+      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,*,Auto">
+        <TextBlock Classes="section" Text="WAVEFORM · LOOP" Margin="0"/>
+        <TextBlock Grid.Column="1" Text="{Binding AbStatus}" FontSize="10" Foreground="#71717A"
+                   VerticalAlignment="Center"/>
+        <ctrl:WaveformView Grid.Row="1" Grid.ColumnSpan="2" Height="52" Margin="0,2,0,2"
+                           Peaks="{Binding PeakEnvelope}"
+                           LoopStartFraction="{Binding LoopStartFraction}"
+                           CrossfadeStartFraction="{Binding CrossfadeStartFraction}"
+                           JoinInfo="{Binding JoinInfo}"/>
+        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding JoinInfo}"
+                   FontSize="9" Foreground="#A1A1AA"/>
+      </Grid>
+    </Border>
+
+    <!-- Status + transport -->
+    <Border DockPanel.Dock="Bottom" Background="#18181B" CornerRadius="6"
+            Padding="8,5" Margin="0,2,0,0" BorderBrush="#27272A" BorderThickness="1">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding StatusText}" Foreground="#A1A1AA" VerticalAlignment="Center"
+                   FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+          <Button Classes="primary" Content="▶ Preview"
+                  Command="{Binding PreviewCommand}"
+                  IsEnabled="{Binding !IsBusy}"/>
+          <Button Content="■ Stop" Command="{Binding StopPreviewCommand}"/>
+          <Button Classes="primary" Content="Export WAV…"
+                  Command="{Binding ExportWavCommand}"
+                  IsEnabled="{Binding !IsBusy}"/>
+          <Button Classes="primary" Content="Export SFZ…"
+                  Command="{Binding ExportSfzCommand}"
+                  IsEnabled="{Binding !IsBusy}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Main controls: four columns (source · tone · motion/FX · library) -->
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <Grid ColumnDefinitions="*,*,*,*">
+
+        <!-- Column 0: source -->
+        <StackPanel Grid.Column="0">
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="PITCH"/>
+              <TextBlock Text="{Binding NoteLabel}" Foreground="#F5F3FF" FontSize="11"
+                         FontWeight="SemiBold" Margin="0,0,0,2"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="MIDI note"/>
+                <Slider Grid.Column="1" Minimum="24" Maximum="84" TickFrequency="1"
+                        IsSnapToTickEnabled="True" Value="{Binding MidiNote}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding MidiNote}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Fine (cents)"/>
+                <Slider Grid.Column="1" Minimum="-50" Maximum="50" Value="{Binding FineTuneCents}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FineTuneCents, StringFormat={}{0:F1}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Seed"/>
+                <Slider Grid.Column="1" Minimum="1" Maximum="99999" Value="{Binding Seed}"/>
+                <Button Grid.Column="2" Content="🎲" Command="{Binding RandomizeSeedCommand}"
+                        Padding="6,1" Margin="4,0,0,0"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="OSCILLATORS / UNISON"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Waveform"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding WaveformNames}"
+                          SelectedItem="{Binding SelectedWaveform}" HorizontalAlignment="Stretch"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Unison"/>
+                <Slider Grid.Column="1" Minimum="1" Maximum="12" TickFrequency="1"
+                        IsSnapToTickEnabled="True" Value="{Binding UnisonVoices}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding UnisonVoices}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Detune ¢"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="50" Value="{Binding DetuneCents}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding DetuneCents, StringFormat={}{0:F1}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Stereo spread"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding StereoSpread}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding StereoSpread, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Osc level"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1.5" Value="{Binding OscLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding OscLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Pulse width"/>
+                <Slider Grid.Column="1" Minimum="0.05" Maximum="0.95" Value="{Binding PulseWidth}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding PulseWidth, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="PWM depth"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding PwmDepth}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding PwmDepth, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="PWM rate Hz"/>
+                <Slider Grid.Column="1" Minimum="0.01" Maximum="0.4" Value="{Binding PwmRateHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding PwmRateHz, StringFormat={}{0:F3}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Sub"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding SubLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding SubLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Fifth layer"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding FifthLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FifthLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Octave layer"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding OctaveLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding OctaveLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="NOISE / AIR"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Type"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding NoiseTypeNames}"
+                          SelectedItem="{Binding SelectedNoiseType}" HorizontalAlignment="Stretch"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Level"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding NoiseLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding NoiseLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Noise LP Hz"/>
+                <Slider Grid.Column="1" Minimum="200" Maximum="10000" Value="{Binding NoiseCutoffHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding NoiseCutoffHz, StringFormat={}{0:F0}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Stereo"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding NoiseStereo}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding NoiseStereo, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Motion"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding NoiseMotion}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding NoiseMotion, StringFormat={}{0:F2}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- Column 1: filter / formants / layers -->
+        <StackPanel Grid.Column="1">
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="FILTER"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Cutoff Hz"/>
+                <Slider Grid.Column="1" Minimum="80" Maximum="8000" Value="{Binding CutoffHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding CutoffHz, StringFormat={}{0:F0}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Resonance"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Resonance}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding Resonance, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="LFO rate"/>
+                <Slider Grid.Column="1" Minimum="0.01" Maximum="1" Value="{Binding FilterLfoRateHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FilterLfoRateHz, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="LFO depth"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding FilterLfoDepth}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FilterLfoDepth, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Env amount"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding FilterEnvAmount}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FilterEnvAmount, StringFormat={}{0:F2}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="VOWEL / FORMANTS"/>
+              <TextBlock Text="{Binding VowelLabel, StringFormat=Vowel: {0}}"
+                         Foreground="#F5F3FF" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,1"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Formant mix"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding FormantAmount}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FormantAmount, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Vowel"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Vowel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding Vowel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Formant Q"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding FormantResonance}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FormantResonance, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Shift"/>
+                <Slider Grid.Column="1" Minimum="0.6" Maximum="1.6" Value="{Binding FormantShift}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FormantShift, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Motion"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding FormantMotion}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FormantMotion, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Motion rate"/>
+                <Slider Grid.Column="1" Minimum="0.01" Maximum="0.4" Value="{Binding FormantMotionRateHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding FormantMotionRateHz, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <CheckBox Content="Sung (near vowel)" IsChecked="{Binding FormantSung}"/>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="DUAL LAYER B"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Waveform"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding WaveformNames}"
+                          SelectedItem="{Binding SelectedLayerBWaveform}" HorizontalAlignment="Stretch"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Level"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding LayerBLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding LayerBLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Voices"/>
+                <Slider Grid.Column="1" Minimum="1" Maximum="8" TickFrequency="1"
+                        IsSnapToTickEnabled="True" Value="{Binding LayerBVoices}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding LayerBVoices}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Detune ¢"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="40" Value="{Binding LayerBDetuneCents}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding LayerBDetuneCents, StringFormat={}{0:F0}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Cutoff ×"/>
+                <Slider Grid.Column="1" Minimum="0.6" Maximum="2.5" Value="{Binding LayerBCutoffRatio}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding LayerBCutoffRatio, StringFormat={}{0:F2}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="ENVELOPE"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Attack s"/>
+                <Slider Grid.Column="1" Minimum="0.05" Maximum="6" Value="{Binding AttackSeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding AttackSeconds, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Decay s"/>
+                <Slider Grid.Column="1" Minimum="0.05" Maximum="4" Value="{Binding DecaySeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding DecaySeconds, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Sustain"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding SustainLevel}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding SustainLevel, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Release s"/>
+                <Slider Grid.Column="1" Minimum="0.1" Maximum="8" Value="{Binding ReleaseSeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ReleaseSeconds, StringFormat={}{0:F2}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- Column 2: motion + space -->
+        <StackPanel Grid.Column="2">
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="EVOLUTION / MOTION"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Evolution"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Evolution}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding Evolution, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Drift"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding DriftAmount}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding DriftAmount, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Drift rate"/>
+                <Slider Grid.Column="1" Minimum="0.01" Maximum="0.5" Value="{Binding DriftRateHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding DriftRateHz, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Amp LFO rate"/>
+                <Slider Grid.Column="1" Minimum="0.01" Maximum="1" Value="{Binding AmpLfoRateHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding AmpLfoRateHz, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Amp LFO depth"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="0.5" Value="{Binding AmpLfoDepth}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding AmpLfoDepth, StringFormat={}{0:F2}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="CHORUS (JUNO)"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Mode"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding ChorusModeNames}"
+                          SelectedItem="{Binding SelectedChorusMode}" HorizontalAlignment="Stretch"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Mix"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding ChorusMix}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ChorusMix, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Rate Hz"/>
+                <Slider Grid.Column="1" Minimum="0.05" Maximum="2" Value="{Binding ChorusRateHz}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ChorusRateHz, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Depth ms"/>
+                <Slider Grid.Column="1" Minimum="0.5" Maximum="10" Value="{Binding ChorusDepthMs}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ChorusDepthMs, StringFormat={}{0:F1}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="SPACE / TONE"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Reverb mix"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding ReverbMix}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ReverbMix, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Reverb decay"/>
+                <Slider Grid.Column="1" Minimum="0.1" Maximum="0.95" Value="{Binding ReverbDecay}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ReverbDecay, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Damping"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding ReverbDamping}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ReverbDamping, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Predelay ms"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="60" Value="{Binding ReverbPredelayMs}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ReverbPredelayMs, StringFormat={}{0:F0}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Stereo width"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="2" Value="{Binding StereoWidth}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding StereoWidth, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Drive"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Drive}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding Drive, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Out gain dB"/>
+                <Slider Grid.Column="1" Minimum="-18" Maximum="6" Value="{Binding OutputGainDb}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding OutputGainDb, StringFormat={}{0:F1}}"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- Column 3: library export -->
+        <StackPanel Grid.Column="3">
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="EXPORT / LOOP"/>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Duration s"/>
+                <Slider Grid.Column="1" Minimum="4" Maximum="90" Value="{Binding DurationSeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding DurationSeconds, StringFormat={}{0:F1}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Loop start s"/>
+                <Slider Grid.Column="1" Minimum="0.5" Maximum="40" Value="{Binding LoopStartSeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding LoopStartSeconds, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Crossfade s"/>
+                <Slider Grid.Column="1" Minimum="0.05" Maximum="4" Value="{Binding CrossfadeSeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding CrossfadeSeconds, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <CheckBox Content="Stereo" IsChecked="{Binding Stereo}"/>
+              <CheckBox Content="Embed loop (smpl)" IsChecked="{Binding EmbedLoopPoints}"/>
+              <CheckBox Content="Lock evolution to loop" IsChecked="{Binding LockEvolutionToLoop}"/>
+              <CheckBox Content="Optimise loop start" IsChecked="{Binding OptimizeLoopPoint}"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Oversample"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding OversampleLabels}"
+                          SelectedItem="{Binding SelectedOversample}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Bit depth"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding BitDepthLabels}"
+                          SelectedItem="{Binding SelectedBitDepth}"/>
+              </Grid>
+              <CheckBox Content="Archival 96 kHz (needs 2×)" IsChecked="{Binding Archival96kHz}"/>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="KEYZONES / SFZ"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Recipe"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding ZoneRecipeNames}"
+                          SelectedItem="{Binding SelectedZoneRecipe}" HorizontalAlignment="Stretch"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="label" Text="Spacing"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding ZoneSpacingNames}"
+                          SelectedItem="{Binding SelectedZoneSpacing}" HorizontalAlignment="Stretch"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Map low"/>
+                <Slider Grid.Column="1" Minimum="12" Maximum="96" TickFrequency="1"
+                        IsSnapToTickEnabled="True" Value="{Binding ZoneLowKey}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ZoneLowKey}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Map high"/>
+                <Slider Grid.Column="1" Minimum="24" Maximum="108" TickFrequency="1"
+                        IsSnapToTickEnabled="True" Value="{Binding ZoneHighKey}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding ZoneHighKey}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="SFZ release"/>
+                <Slider Grid.Column="1" Minimum="0.2" Maximum="8" Value="{Binding SfzReleaseSeconds}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding SfzReleaseSeconds, StringFormat={}{0:F1}}"/>
+              </Grid>
+              <CheckBox Content="Shorter outer zones" IsChecked="{Binding ShorterOuterZones}"/>
+              <TextBlock Text="{Binding ZoneMapSummary}" Foreground="#E4E4E7" FontSize="10"
+                         Margin="0,2,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="section" Text="TIPS"/>
+              <TextBlock Classes="hint"
+                         Text="Evolution scales motion/drift. Formants: Oo→Ah→Ee. Pulse+PWM for strings. Lock evolution for clean loops."/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+      </Grid>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

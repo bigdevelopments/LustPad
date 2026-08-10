@@ -1,0 +1,135 @@
+# LustPad
+
+**Offline lush pad laboratory → looped sample library.**
+
+**C# / .NET** desktop app built with [Avalonia UI](https://avaloniaui.net/) (cross-platform XAML UI for .NET — similar spirit to WPF). Single-screen tool for designing **evolving pad** sounds and exporting them as sampler-ready **WAV** files (and multi-zone **SFZ** instruments). Synthesis is fully **offline**: print quality first, then ship cheap-to-play samples.
+
+The product name is playful (**LustPad**); the sonic goal is **lush**.
+
+![LustPad main window](LustPad.png)
+
+---
+
+## Features
+
+### Sound design
+- Unison oscillator bank (saw / square / triangle / sine / mixed / **pulse**) with polyBLEP edges
+- **Pulse width + PWM** (depth / rate, loop-lockable) for stringy, living pads
+- **Osc level** plus sub, fifth, and octave layers
+- **Dual Layer B** — second detuned stack with its own cutoff colour
+- Noise / air (white, pink, brown) with dedicated LP, stereo decorrelation, and motion
+- Resonant low-pass, slow LFOs, pitch drift, amplitude “breathing”
+- **Parallel formants** (Oo → Ah → Ee): vowel bandpass path mixed with the normal filtered pad; optional *sung* motion
+- **Juno-style chorus** (modes I / II / I+II), FDN reverb (predelay + damping), mid/side stereo width, soft drive
+- Character macros: **Lush · Dark · Airy · Vocal**
+- Scoped **randomize** (tone / motion / space / subtle) — never touches note, duration, loop, or export structure
+
+### Looping & quality
+- Loop end = end of file; attack lives before **loop start**
+- **Lock evolution to loop** — LFO / PWM / motion rates snap to whole cycles over the loop body
+- Loop-start optimisation + equal-power crossfade (end blended to pre-loop lead-in for seamless wrap)
+- DC / sub-Hz blocker on the render path (cleaner loops and exports)
+- Optional **2× oversampling** (96 kHz render → 48 kHz), **24-bit** export, **96 kHz archival**
+- Waveform overview with loop / crossfade markers and join-error readout
+- **Background preview render** — loading a preset or changing controls pre-renders so ▶ is ready when you are
+
+### Library export
+- Single WAV with embedded **`smpl`** loop points
+- **SFZ** folder export: multi-root keyzones, named recipes (formant-dense / drone / full fifths), optional shorter outer zones
+- JSON presets (`.lustpad.json`); A/B compare two full patch snapshots
+
+Release length is left to the **sampler ADSR** — the sample is a holdable sustain loop.
+
+---
+
+## Requirements
+
+- **C# / [.NET 10 SDK](https://dotnet.microsoft.com/download)** (or compatible)
+- **[Avalonia](https://avaloniaui.net/)** UI (pulled in via NuGet with the project)
+- Windows recommended for NAudio preview (WASAPI); Avalonia itself is cross-platform
+
+---
+
+## Quick start
+
+```powershell
+git clone https://github.com/bigdevelopments/LustPad.git
+cd LustPad
+dotnet build LustPad.slnx
+dotnet run --project LustPad.App
+```
+
+Tests:
+
+```powershell
+dotnet test LustPad.Core.Tests
+```
+
+---
+
+## Solution layout
+
+| Path | Role |
+|------|------|
+| `LustPad.slnx` | Solution |
+| `LustPad.App/` | Avalonia UI, NAudio preview, ViewModels |
+| `LustPad.Core/` | Synthesis, loop processor, WAV writer, SFZ exporter, macros |
+| `LustPad.Core.Tests/` | Unit tests on the real render/export path |
+| `samples/` | Optional local example renders (not required to build) |
+
+---
+
+## Typical workflow
+
+1. Load a built-in (**Ooh Choir**, **Ahhh Pad**, **Lush Pad**, …), open a `.lustpad.json`, or start from scratch  
+2. Wait for status **Preview ready** (render runs in the background)  
+3. Set **MIDI note**, duration, and loop start (after the attack settles)  
+4. Shape tone (filter, formants, noise, Layer B, Juno chorus, space) — each change re-preps the preview  
+5. **▶ Preview** (software-looped) — check waveform markers / join error  
+6. **Export WAV…** or **Export SFZ…** for a multi-sample map  
+7. In your sampler: loop continuous, amp release to taste  
+
+**Tips**
+- Formant amount blends the **normal pad path** with a parallel **vowel bandpass** path — raise mix, then sweep vowel (Oo ↔ Ah ↔ Ee).  
+- Formant / evolving pads want denser keyzones (minor 3rd / 4th); simple drones tolerate fifths or octaves.  
+- Pitch stretch speeds up evolution when using one sample across the keyboard.
+
+---
+
+## Architecture (why offline)
+
+Realtime synths fight latency and CPU every note. LustPad **renders offline**, so it can afford:
+
+- Fat unison + dual layer + parallel formants + long reverb  
+- Juno-style BBD chorus and loop-period locking  
+- Loop-point search and seamless end↔lead-in crossfade  
+- Oversampled print-down to 48 kHz  
+
+You pay disk for multi-samples; play time stays cheap (sampler just loops PCM).
+
+---
+
+## Credits
+
+**Designed and built with [Grok](https://x.ai/)** (xAI) in a hands-on pair-programming session — architecture, synthesis engine, Avalonia UI, loop continuity, SFZ export, and the “offline pad factory” workflow.
+
+- **Human direction:** product vision, sound goals (lush pads, ooh/ahh, sample-library use), taste and iteration  
+- **Grok:** implementation across `LustPad.Core` / `LustPad.App`, DSP details, export tooling, and tests  
+
+Libraries we lean on:
+
+- [Avalonia UI](https://avaloniaui.net/) — desktop shell  
+- [NAudio](https://github.com/naudio/NAudio) — Windows preview playback  
+- [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) — ViewModel plumbing  
+
+---
+
+## License
+
+No license file is included yet. Add one (e.g. MIT) before publishing if you want open reuse clarified.
+
+---
+
+## Status
+
+Actively useful for sketching and exporting pad libraries. Not a realtime instrument plugin. Contributions and forks welcome once the repo is public.
