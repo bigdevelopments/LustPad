@@ -29,6 +29,7 @@ jobs:
             -o publish/LustPad `
             -p:Version=$ver `
             -p:PublishReadyToRun=true
+          Remove-Item publish/LustPad/*.pdb -ErrorAction SilentlyContinue
           Copy-Item LICENSE, README.md publish/LustPad/
 
       - name: Zip
@@ -44,7 +45,7 @@ jobs:
           @"
           Offline lush pad laboratory — unzip and run ``LustPad.exe``.
 
-          Self-contained **Windows x64** build. You do not need to install .NET separately. Preview uses WASAPI.
+          One **Windows x64** executable (self-contained, .NET included). First launch may extract native libraries to a temp folder. Preview uses WASAPI.
 
           In your sampler: loop continuous. If you exported with **Sampler ADSR**, shape attack and release there.
 

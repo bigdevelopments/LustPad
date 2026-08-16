@@ -54,7 +54,7 @@ With **Sampler ADSR** on, both attack and release are left to the sampler. Off (
 
 ## Quick start
 
-Windows build (no compile): unzip `LustPad.exe` from [Releases](https://github.com/bigdevelopments/LustPad/releases).
+Windows build (no compile): grab the zip from [Releases](https://github.com/bigdevelopments/LustPad/releases) and run `LustPad.exe`.
 
 ```powershell
 git clone https://github.com/bigdevelopments/LustPad.git

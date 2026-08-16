@@ -3,8 +3,19 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- Only when publishing with a RID (release zip). Everyday `dotnet run` stays a normal build. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <CopyDebugSymbolFilesFromPackages>false</CopyDebugSymbolFilesFromPackages>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,4 +39,11 @@
   <ItemGroup>
     <ProjectReference Include="..\LustPad.Core\LustPad.Core.csproj" />
   </ItemGroup>
+
+  <Target Name="RemovePublishPdbs" AfterTargets="Publish">
+    <ItemGroup>
+      <_PublishPdbs Include="$(PublishDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(_PublishPdbs)" />
+  </Target>
 </Project>
