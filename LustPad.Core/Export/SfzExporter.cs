@@ -81,45 +81,56 @@ public static class SfzExporter
         string baseName = SanitizeFileName(string.IsNullOrWhiteSpace(template.Name) ? "Pad" : template.Name);
         var roots = BuildRootNotes(options, template.MidiNote);
 
-        var regions = new List<RegionInfo>();
-        int index = 0;
-        foreach (var root in roots)
+        int workers = ZoneParallelism(template, roots.Count);
+        progress?.Report(
+            roots.Count == 1
+                ? $"Rendering zone: {NoteName(roots[0])}…"
+                : $"Rendering {roots.Count} zones ({workers} at a time)…");
+
+        var regions = new RegionInfo[roots.Count];
+        int completed = 0;
+        var parallel = new ParallelOptions
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            index++;
-            progress?.Report($"Rendering zone {index}/{roots.Count}: {NoteName(root)}…");
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = workers,
+        };
 
-            var p = template.Clone();
-            p.MidiNote = root;
-            float durScale = ZoneRecipes.DurationScaleForRoot(
-                root, roots, options.ShorterOuterZones, options.OuterDurationScale);
-            if (durScale < 0.999f)
+        try
+        {
+            Parallel.For(0, roots.Count, parallel, i =>
             {
-                p.DurationSeconds = Math.Max(2f, p.DurationSeconds * durScale);
-                // Keep loop start proportional but after a minimum attack settle
-                p.LoopStartSeconds = Math.Min(p.LoopStartSeconds * durScale, p.DurationSeconds * 0.45f);
-                p.LoopStartSeconds = Math.Max(0.5f, p.LoopStartSeconds);
-            }
+                parallel.CancellationToken.ThrowIfCancellationRequested();
+                int root = roots[i];
+                var p = ZoneParameters(template, root, roots, options);
 
-            var audio = PadRenderer.Generate(p, cancellationToken);
+                var audio = PadRenderer.Generate(p, parallel.CancellationToken);
 
-            string fileName = $"{baseName}_{NoteName(root)}.wav";
-            string wavPath = Path.Combine(samplesDir, fileName);
-            int bits = p.ExportBitDepth >= 24 ? 24 : 16;
-            WavWriter.Write(wavPath, audio, p.EmbedLoopPoints, bits);
+                string fileName = $"{baseName}_{NoteName(root)}.wav";
+                string wavPath = Path.Combine(samplesDir, fileName);
+                int bits = p.ExportBitDepth >= 24 ? 24 : 16;
+                WavWriter.Write(wavPath, audio, p.EmbedLoopPoints, bits);
 
-            regions.Add(new RegionInfo(
-                fileName,
-                root,
-                audio.LoopStartFrame,
-                audio.LoopEndFrame,
-                audio.SampleRate));
+                regions[i] = new RegionInfo(
+                    fileName,
+                    root,
+                    audio.LoopStartFrame,
+                    audio.LoopEndFrame,
+                    audio.SampleRate);
+
+                int done = Interlocked.Increment(ref completed);
+                progress?.Report($"Rendered {done}/{roots.Count}: {NoteName(root)}");
+            });
+        }
+        catch (AggregateException ex)
+        {
+            throw UnwrapParallel(ex);
         }
 
-        AssignKeyRanges(regions, options.LowKey, options.HighKey);
+        var regionList = regions.ToList();
+        AssignKeyRanges(regionList, options.LowKey, options.HighKey);
 
         string sfzPath = Path.Combine(folderPath, baseName + ".sfz");
-        File.WriteAllText(sfzPath, BuildSfzText(baseName, template, regions, options), Encoding.UTF8);
+        File.WriteAllText(sfzPath, BuildSfzText(baseName, template, regionList, options), Encoding.UTF8);
 
         // Also drop a JSON preset so the instrument can be re-opened in LustPad
         try
@@ -138,10 +149,48 @@ public static class SfzExporter
         {
             FolderPath = folderPath,
             SfzPath = sfzPath,
-            ZoneCount = regions.Count,
+            ZoneCount = regionList.Count,
             RootNotes = roots,
             ElapsedMilliseconds = sw.ElapsedMilliseconds,
         };
+    }
+
+    private static PadParameters ZoneParameters(
+        PadParameters template, int root, IReadOnlyList<int> roots, SfzExportOptions options)
+    {
+        var p = template.Clone();
+        p.MidiNote = root;
+        float durScale = ZoneRecipes.DurationScaleForRoot(
+            root, roots, options.ShorterOuterZones, options.OuterDurationScale);
+        if (durScale < 0.999f)
+        {
+            p.DurationSeconds = Math.Max(2f, p.DurationSeconds * durScale);
+            p.LoopStartSeconds = Math.Min(p.LoopStartSeconds * durScale, p.DurationSeconds * 0.45f);
+            p.LoopStartSeconds = Math.Max(0.5f, p.LoopStartSeconds);
+        }
+        return p;
+    }
+
+    /// <summary>
+    /// Independent zones render in parallel. Cap workers so 2× / 96 kHz jobs
+    /// do not allocate a dozen full-length buffers at once.
+    /// </summary>
+    internal static int ZoneParallelism(PadParameters p, int zoneCount)
+    {
+        if (zoneCount <= 1)
+            return 1;
+        int cap = p.OversampleFactor >= 2 || p.Archival96kHz ? 3 : 6;
+        return Math.Clamp(Environment.ProcessorCount, 1, cap);
+    }
+
+    private static Exception UnwrapParallel(AggregateException ex)
+    {
+        foreach (var inner in ex.Flatten().InnerExceptions)
+        {
+            if (inner is OperationCanceledException)
+                return inner;
+        }
+        return ex.Flatten().InnerExceptions[0];
     }
 
     public static List<int> BuildRootNotes(SfzExportOptions options, int preferredRoot)

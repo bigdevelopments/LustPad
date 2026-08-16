@@ -731,6 +731,43 @@ public class PadQualityTests
     }
 
     [Fact]
+    public void Sfz_export_writes_all_zones()
+    {
+        var p = ShortPad();
+        p.Name = "ParallelZones";
+        p.MidiNote = 48;
+        p.OversampleFactor = 1;
+
+        string dir = Path.Combine(Path.GetTempPath(), "lustpad-sfz-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var opts = new SfzExportOptions
+            {
+                Spacing = ZoneSpacing.MinorThird,
+                LowKey = 48,
+                HighKey = 57,
+            };
+            var result = SfzExporter.Export(p, dir, opts);
+            Assert.True(result.ZoneCount >= 3, $"expected several zones, got {result.ZoneCount}");
+            Assert.Equal(result.ZoneCount, result.RootNotes.Count);
+            Assert.True(File.Exists(result.SfzPath));
+
+            string text = File.ReadAllText(result.SfzPath);
+            foreach (int root in result.RootNotes)
+            {
+                string wav = Path.Combine(dir, "samples", $"ParallelZones_{SfzExporter.NoteName(root)}.wav");
+                Assert.True(File.Exists(wav), $"missing {wav}");
+                Assert.Contains($"pitch_keycenter={root}", text);
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void Unison_detune_stacks_toward_the_edges()
     {
         const int voices = 7;
