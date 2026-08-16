@@ -20,6 +20,13 @@ internal sealed class AdsrEnvelope
         _level = 0f;
     }
 
+    /// <summary>Skip attack/decay/release — hold at sustain for a sampler-shaped loop.</summary>
+    public void HoldSustain(float level)
+    {
+        _stage = Stage.Sustain;
+        _level = Math.Clamp(level, 0f, 1f);
+    }
+
     public void NoteOff(float releaseSeconds)
     {
         if (_stage is Stage.Off or Stage.Release)

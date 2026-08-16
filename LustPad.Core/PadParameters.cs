@@ -20,6 +20,11 @@ public sealed class PadParameters
     public int UnisonVoices { get; set; } = 7;
     public float DetuneCents { get; set; } = 18f;
     public float StereoSpread { get; set; } = 0.85f;
+    /// <summary>
+    /// 0 = all unison voices start together; 1 = outer voices fade in after the centre
+    /// (always finishes before loop start).
+    /// </summary>
+    public float AttackBloom { get; set; } = 0.4f;
     /// <summary>Main unison oscillator bank level (0 = noise/sub/layers only).</summary>
     public float OscLevel { get; set; } = 1f;
     public float SubLevel { get; set; } = 0.25f;      // octave-down sine
@@ -55,7 +60,7 @@ public sealed class PadParameters
     public float FilterEnvAmount { get; set; } = 0.35f;
 
     // Formants / vowel colour ("oooooh")
-    /// <summary>0 = bypass, 1 = full formant path (vocal ooh/ahh).</summary>
+    /// <summary>0 = bypass (normal LPF pad), 1 = full vowel-resonator path (ooh/ahh/ee).</summary>
     public float FormantAmount { get; set; } = 0f;
     /// <summary>0 = Oo … 0.5 = Ah … 1 = Ee</summary>
     public float Vowel { get; set; } = 0f;
@@ -72,6 +77,11 @@ public sealed class PadParameters
     public float DecaySeconds { get; set; } = 1.2f;
     public float SustainLevel { get; set; } = 0.85f;
     public float ReleaseSeconds { get; set; } = 2.5f;
+    /// <summary>
+    /// When true, print a constant-sustain hold loop: no baked attack or release.
+    /// Attack/release values are sampler suggestions (SFZ <c>ampeg_*</c>).
+    /// </summary>
+    public bool SamplerEnvelope { get; set; } = false;
 
     // Motion / evolution
     public float AmpLfoRateHz { get; set; } = 0.12f;
@@ -155,6 +165,7 @@ public sealed class PadParameters
             UnisonVoices = UnisonVoices,
             DetuneCents = DetuneCents,
             StereoSpread = StereoSpread,
+            AttackBloom = AttackBloom,
             OscLevel = OscLevel,
             SubLevel = SubLevel,
             FifthLevel = FifthLevel,
@@ -189,6 +200,7 @@ public sealed class PadParameters
             DecaySeconds = DecaySeconds,
             SustainLevel = SustainLevel,
             ReleaseSeconds = ReleaseSeconds,
+            SamplerEnvelope = SamplerEnvelope,
             AmpLfoRateHz = AmpLfoRateHz,
             AmpLfoDepth = AmpLfoDepth,
             DriftAmount = DriftAmount,

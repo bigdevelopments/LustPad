@@ -30,17 +30,21 @@ public sealed class PadSynthesizer
         var oscs = new Oscillator[voices];
         var pans = new float[voices];
         var detuneRatios = new float[voices];
+        var onsetDelay = new float[voices];
+        var onsetFade = new float[voices];
+
+        float bloomSec = UnisonLayout.BloomSeconds(p);
+        float fadeSec = UnisonLayout.FadeSeconds(bloomSec);
 
         for (int v = 0; v < voices; v++)
         {
             oscs[v] = new Oscillator(sampleRate, rng.NextDouble());
-            float t = voices == 1 ? 0.5f : v / (float)(voices - 1);
-            // -1..1 pan positions across the field
-            pans[v] = (t * 2f - 1f) * p.StereoSpread;
-            float detuneCents = voices == 1
-                ? 0f
-                : (t * 2f - 1f) * p.DetuneCents;
-            detuneRatios[v] = CentsToRatio(detuneCents);
+            float pos = UnisonLayout.UnitPosition(v, voices);
+            pans[v] = pos * p.StereoSpread;
+            detuneRatios[v] = CentsToRatio(UnisonLayout.DetuneSpread(v, voices) * p.DetuneCents);
+            float edge = UnisonLayout.Edge(v, voices);
+            onsetDelay[v] = bloomSec * edge;
+            onsetFade[v] = edge < 0.02f ? 0f : fadeSec;
         }
 
         // Dual layer B
@@ -48,15 +52,21 @@ public sealed class PadSynthesizer
         var oscsB = new Oscillator[bVoices];
         var pansB = new float[bVoices];
         var detuneB = new float[bVoices];
+        var onsetDelayB = new float[bVoices];
+        var onsetFadeB = new float[bVoices];
         for (int v = 0; v < bVoices; v++)
         {
             oscsB[v] = new Oscillator(sampleRate, rng.NextDouble());
-            float t = bVoices == 1 ? 0.5f : v / (float)(bVoices - 1);
-            pansB[v] = (t * 2f - 1f) * p.StereoSpread * 1.05f;
-            detuneB[v] = CentsToRatio((t * 2f - 1f) * p.LayerBDetuneCents);
+            float pos = UnisonLayout.UnitPosition(v, bVoices);
+            pansB[v] = pos * p.StereoSpread * 1.05f;
+            detuneB[v] = CentsToRatio(UnisonLayout.DetuneSpread(v, bVoices) * p.LayerBDetuneCents);
+            float edge = UnisonLayout.Edge(v, bVoices);
+            onsetDelayB[v] = bloomSec * 1.15f * edge;
+            onsetFadeB[v] = edge < 0.02f ? 0f : fadeSec;
         }
         var filterBL = new BiquadFilter(sampleRate);
         var filterBR = new BiquadFilter(sampleRate);
+        float lastBCut = float.NaN;
 
         var subOsc = new Oscillator(sampleRate, rng.NextDouble());
         var fifthOsc = new Oscillator(sampleRate, rng.NextDouble());
@@ -94,11 +104,15 @@ public sealed class PadSynthesizer
         int formantUpdateCounter = 0;
         float lastVowelPos = float.NaN;
         var env = new AdsrEnvelope(sampleRate);
-        env.NoteOn();
+        if (p.SamplerEnvelope)
+            env.HoldSustain(p.SustainLevel);
+        else
+            env.NoteOn();
 
         // For loopable sample-library pads we hold sustain through the whole file.
         // Release is applied only as a short tail after the export body (in the extra render)
         // so the loop region never fades out. Sampler engines supply their own release.
+        // SamplerEnvelope skips that tail fade too — the WAV is a hold loop.
         int releaseStart = totalSamples; // begin release at end of exported body
         bool released = false;
 
@@ -114,6 +128,12 @@ public sealed class PadSynthesizer
         float q = 0.5f + p.Resonance * 4.5f;
         float lastCutoff = float.NaN;
         const int filterUpdateEvery = 16;
+        float loopLenSec = Math.Max(0.5f, p.DurationSeconds - p.LoopStartSeconds);
+        float driftRate2 = p.DriftRateHz > 0.0001f
+            ? (p.LockEvolutionToLoop
+                ? Audio.LoopEvolution.SnapRate(p.DriftRateHz * 0.73f + 0.01f, loopLenSec)
+                : p.DriftRateHz * 0.73f + 0.01f)
+            : 0f;
 
         for (int i = 0; i < renderSamples; i++)
         {
@@ -121,7 +141,7 @@ public sealed class PadSynthesizer
             if ((i & 1023) == 0)
                 cancellationToken.ThrowIfCancellationRequested();
 
-            if (!released && i >= releaseStart)
+            if (!p.SamplerEnvelope && !released && i >= releaseStart)
             {
                 env.NoteOff(p.ReleaseSeconds);
                 released = true;
@@ -130,13 +150,7 @@ public sealed class PadSynthesizer
             float envLevel = env.Next(p.AttackSeconds, p.DecaySeconds, p.SustainLevel);
 
             // Slow drift / evolution — absolute-time LFOs so loop-lock phases match exactly
-            float loopLenSec = Math.Max(0.5f, p.DurationSeconds - p.LoopStartSeconds);
             float driftRate1 = p.DriftRateHz;
-            float driftRate2 = p.DriftRateHz > 0.0001f
-                ? (p.LockEvolutionToLoop
-                    ? Audio.LoopEvolution.SnapRate(p.DriftRateHz * 0.73f + 0.01f, loopLenSec)
-                    : p.DriftRateHz * 0.73f + 0.01f)
-                : 0f;
             float drift = driftLfo.SinAt(i, driftRate1)
                           * p.DriftAmount * evolution * 0.02f; // ~2% pitch at full
             float drift2 = driftLfo2.SinAt(i, driftRate2)
@@ -164,7 +178,8 @@ public sealed class PadSynthesizer
                 for (int v = 0; v < voices; v++)
                 {
                     float freq = baseFreq * detuneRatios[v] * pitchMod;
-                    float sample = oscs[v].Next(freq, p.Waveform, pulseWidth) * voiceScale;
+                    float onset = UnisonLayout.OnsetGain(i, sampleRate, onsetDelay[v], onsetFade[v]);
+                    float sample = oscs[v].Next(freq, p.Waveform, pulseWidth) * voiceScale * onset;
                     float pan = pans[v];
                     float lGain = MathF.Sqrt(0.5f * (1f - pan));
                     float rGain = MathF.Sqrt(0.5f * (1f + pan));
@@ -181,14 +196,20 @@ public sealed class PadSynthesizer
                 for (int v = 0; v < bVoices; v++)
                 {
                     float freq = baseFreq * detuneB[v] * pitchMod * 1.003f;
-                    float sample = oscsB[v].Next(freq, p.LayerBWaveform, pulseWidth) * bScale;
+                    float onset = UnisonLayout.OnsetGain(i, sampleRate, onsetDelayB[v], onsetFadeB[v]);
+                    float sample = oscsB[v].Next(freq, p.LayerBWaveform, pulseWidth) * bScale * onset;
                     float pan = pansB[v];
                     bL += sample * MathF.Sqrt(0.5f * (1f - pan));
                     bR += sample * MathF.Sqrt(0.5f * (1f + pan));
                 }
                 float bCut = Math.Clamp(p.CutoffHz * Math.Clamp(p.LayerBCutoffRatio, 0.5f, 3f), 40f, sampleRate * 0.45f);
-                filterBL.SetLowPass(bCut, 0.7f);
-                filterBR.SetLowPass(bCut * 1.02f, 0.7f);
+                if ((i % filterUpdateEvery) == 0 || float.IsNaN(lastBCut) ||
+                    MathF.Abs(bCut - lastBCut) > 8f)
+                {
+                    filterBL.SetLowPass(bCut, 0.7f);
+                    filterBR.SetLowPass(bCut * 1.02f, 0.7f);
+                    lastBCut = bCut;
+                }
                 bL = filterBL.Process(bL);
                 bR = filterBR.Process(bR);
                 float bGain = p.LayerBLevel * 0.55f;
@@ -264,8 +285,8 @@ public sealed class PadSynthesizer
             //   formant → bandpass vowel bank (needs full harmonic stack)
             // then crossfade by FormantAmount.
             float formAmt = Math.Clamp(p.FormantAmount, 0f, 1f);
-            // Slight mid-lift so the blend is useful before the slider is pegged
-            float formMix = formAmt <= 0f ? 0f : MathF.Pow(formAmt, 0.75f);
+            // Concave-up wetness: 0.5 already ~0.7 so the vowel reads before the slider is pegged.
+            float formMix = formAmt <= 0f ? 0f : MathF.Pow(formAmt, 0.6f);
 
             float formL = left;
             float formR = right;
@@ -276,9 +297,12 @@ public sealed class PadSynthesizer
                 if (p.FormantMotion > 0.001f)
                 {
                     float motion = formantLfo.SinAt(i, p.FormantMotionRateHz);
+                    // Sung stays near the chosen vowel; free can walk Oo→Ee.
+                    // Old spans (0.12 / 0.42) were below a just-noticeable vowel step
+                    // at typical slider values, so Motion felt dead.
                     float span = p.FormantSung
-                        ? p.FormantMotion * 0.12f
-                        : p.FormantMotion * 0.42f;
+                        ? p.FormantMotion * 0.30f
+                        : p.FormantMotion * 0.75f;
                     vowelPos = Math.Clamp(vowelCenter + motion * span, 0f, 1f);
                 }
 
@@ -337,11 +361,13 @@ public sealed class PadSynthesizer
 
             // Chorus (Juno-style BBD; absolute-time LFO for loop lock)
             (left, right) = chorus.Process(
-                left, right, p.ChorusMix, p.ChorusRateHz, p.ChorusDepthMs, p.ChorusMode, i);
+                left, right, p.ChorusMix, p.ChorusRateHz, p.ChorusDepthMs, p.ChorusMode, i,
+                loopLenSec, p.LockEvolutionToLoop);
 
-            // Reverb (predelay + damping)
+            // Reverb (predelay + damping + loop-locked tank modulation)
             (left, right) = reverb.Process(
-                left, right, p.ReverbMix, p.ReverbDecay, p.ReverbDamping, p.ReverbPredelayMs);
+                left, right, p.ReverbMix, p.ReverbDecay, p.ReverbDamping, p.ReverbPredelayMs,
+                i, loopLenSec, p.LockEvolutionToLoop);
 
             // Mid/side stereo width (after space so the room stays coherent)
             if (channels == 2)

@@ -1,3 +1,5 @@
+using LustPad.Core.Audio;
+
 namespace LustPad.Core.Synthesis;
 
 /// <summary>
@@ -36,7 +38,8 @@ internal sealed class Chorus
     public (float left, float right) Process(
         float left, float right,
         float mix, float rateHz, float depthMs,
-        ChorusMode mode, long sampleIndex)
+        ChorusMode mode, long sampleIndex,
+        float loopLenSec = 0f, bool lockToLoop = false)
     {
         mix = Math.Clamp(mix, 0f, 1f);
 
@@ -56,6 +59,13 @@ internal sealed class Chorus
             out float baseMsA, out float baseMsB,
             out float depthA, out float depthB,
             out bool dual);
+
+        // Snap *after* I / II / I+II scale so the wrap is still an integer cycle.
+        if (lockToLoop && loopLenSec >= 0.5f)
+        {
+            rateA = LoopEvolution.SnapRate(rateA, loopLenSec);
+            rateB = dual ? LoopEvolution.SnapRate(rateB, loopLenSec) : rateA;
+        }
 
         // LFO: opposite phase on L/R (180°) for the wide Juno image
         float modA = SinAt(sampleIndex, rateA, phase0: 0f);

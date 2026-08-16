@@ -117,6 +117,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private int _unisonVoices = 7;
     [ObservableProperty] private float _detuneCents = 18f;
     [ObservableProperty] private float _stereoSpread = 0.85f;
+    [ObservableProperty] private float _attackBloom = 0.4f;
     [ObservableProperty] private float _oscLevel = 1f;
     [ObservableProperty] private float _subLevel = 0.25f;
     [ObservableProperty] private float _fifthLevel = 0.12f;
@@ -174,6 +175,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private float _decaySeconds = 1.2f;
     [ObservableProperty] private float _sustainLevel = 0.85f;
     [ObservableProperty] private float _releaseSeconds = 2.5f;
+    [ObservableProperty] private bool _samplerEnvelope;
 
     // Motion
     [ObservableProperty] private float _ampLfoRateHz = 0.12f;
@@ -269,6 +271,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             UnisonVoices = UnisonVoices,
             DetuneCents = DetuneCents,
             StereoSpread = StereoSpread,
+            AttackBloom = AttackBloom,
             OscLevel = OscLevel,
             SubLevel = SubLevel,
             FifthLevel = FifthLevel,
@@ -303,6 +306,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             DecaySeconds = DecaySeconds,
             SustainLevel = SustainLevel,
             ReleaseSeconds = ReleaseSeconds,
+            SamplerEnvelope = SamplerEnvelope,
             AmpLfoRateHz = AmpLfoRateHz,
             AmpLfoDepth = AmpLfoDepth,
             DriftAmount = DriftAmount,
@@ -345,6 +349,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             UnisonVoices = p.UnisonVoices;
             DetuneCents = p.DetuneCents;
             StereoSpread = p.StereoSpread;
+            AttackBloom = p.AttackBloom;
             OscLevel = p.OscLevel;
             SubLevel = p.SubLevel;
             FifthLevel = p.FifthLevel;
@@ -379,6 +384,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             DecaySeconds = p.DecaySeconds;
             SustainLevel = p.SustainLevel;
             ReleaseSeconds = p.ReleaseSeconds;
+            SamplerEnvelope = p.SamplerEnvelope;
             AmpLfoRateHz = p.AmpLfoRateHz;
             AmpLfoDepth = p.AmpLfoDepth;
             DriftAmount = p.DriftAmount;
@@ -421,6 +427,10 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     {
         if (_disposed || _suspendAutoRender || IsBusy) return;
         if (e.PropertyName is null || AutoRenderIgnore.Contains(e.PropertyName)) return;
+        // Hold-loop print: attack/decay/release are sampler suggestions only.
+        if (SamplerEnvelope && e.PropertyName is nameof(AttackSeconds)
+                or nameof(DecaySeconds) or nameof(ReleaseSeconds))
+            return;
         RequestPreviewRender(immediate: false);
     }
 

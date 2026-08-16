@@ -242,11 +242,23 @@ public static class SfzExporter
         sb.AppendLine("default_path=samples/");
         sb.AppendLine();
         sb.AppendLine("<global>");
-        sb.AppendLine("// Amp envelope: attack is in the sample; release is the sampler's job");
-        sb.AppendLine("ampeg_attack=0.001");
-        sb.AppendLine("ampeg_decay=0");
-        sb.AppendLine("ampeg_sustain=100");
-        sb.AppendLine(string.Create(inv, $"ampeg_release={options.SuggestedReleaseSeconds:F2}"));
+        if (template.SamplerEnvelope)
+        {
+            // Hold-loop print: both ends of the amp envelope belong to the sampler.
+            sb.AppendLine("// Amp envelope: sample is a hold loop; shape attack/release in the sampler");
+            sb.AppendLine(string.Create(inv, $"ampeg_attack={Math.Clamp(template.AttackSeconds, 0.001f, 20f):F2}"));
+            sb.AppendLine("ampeg_decay=0");
+            sb.AppendLine("ampeg_sustain=100");
+            sb.AppendLine(string.Create(inv, $"ampeg_release={Math.Clamp(template.ReleaseSeconds, 0.05f, 20f):F2}"));
+        }
+        else
+        {
+            sb.AppendLine("// Amp envelope: attack is in the sample; release is the sampler's job");
+            sb.AppendLine("ampeg_attack=0.001");
+            sb.AppendLine("ampeg_decay=0");
+            sb.AppendLine("ampeg_sustain=100");
+            sb.AppendLine(string.Create(inv, $"ampeg_release={options.SuggestedReleaseSeconds:F2}"));
+        }
         sb.AppendLine("loop_mode=loop_continuous");
         sb.AppendLine();
         sb.AppendLine("<group>");

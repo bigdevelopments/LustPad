@@ -89,6 +89,7 @@ public static class ToneRandomizer
         nameof(PadParameters.EmbedLoopPoints),
         nameof(PadParameters.LockEvolutionToLoop),
         nameof(PadParameters.OptimizeLoopPoint),
+        nameof(PadParameters.SamplerEnvelope),
         nameof(PadParameters.OversampleFactor),
         nameof(PadParameters.ExportBitDepth),
         nameof(PadParameters.Archival96kHz),
@@ -109,6 +110,7 @@ public static class ToneRandomizer
         p.EmbedLoopPoints = source.EmbedLoopPoints;
         p.LockEvolutionToLoop = source.LockEvolutionToLoop;
         p.OptimizeLoopPoint = source.OptimizeLoopPoint;
+        p.SamplerEnvelope = source.SamplerEnvelope;
         p.OversampleFactor = source.OversampleFactor;
         p.ExportBitDepth = source.ExportBitDepth;
         p.Archival96kHz = source.Archival96kHz;
@@ -122,6 +124,7 @@ public static class ToneRandomizer
         p.UnisonVoices = rng.Next(4, 11);
         p.DetuneCents = Lerp(6f, 32f, rng);
         p.StereoSpread = Lerp(0.55f, 0.95f, rng);
+        p.AttackBloom = Lerp(0.15f, 0.75f, rng);
         // Occasionally noise-led pads (low osc, higher noise is set below)
         p.OscLevel = Chance(rng, 0.12) ? Lerp(0.15f, 0.55f, rng) : Lerp(0.7f, 1.15f, rng);
         p.SubLevel = Lerp(0.05f, 0.45f, rng);
@@ -197,6 +200,7 @@ public static class ToneRandomizer
         p.NoiseMotionRateHz = Lerp(0.02f, 0.1f, rng);
         p.PwmRateHz = Lerp(0.03f, 0.18f, rng);
         p.PwmDepth = Lerp(0.15f, 0.7f, rng);
+        p.AttackBloom = Lerp(0.1f, 0.8f, rng);
         if (full)
             p.ChorusRateHz = Lerp(0.15f, 0.55f, rng);
     }
@@ -220,6 +224,7 @@ public static class ToneRandomizer
     {
         p.DetuneCents = Jitter(p.DetuneCents, 4f, 40f, amount, rng);
         p.StereoSpread = Jitter(p.StereoSpread, 0.3f, 1f, amount, rng);
+        p.AttackBloom = Jitter(p.AttackBloom, 0f, 1f, amount, rng);
         p.OscLevel = Jitter(p.OscLevel, 0f, 1.5f, amount, rng);
         p.SubLevel = Jitter(p.SubLevel, 0f, 0.6f, amount, rng);
         p.FifthLevel = Jitter(p.FifthLevel, 0f, 0.35f, amount, rng);
@@ -248,6 +253,7 @@ public static class ToneRandomizer
         p.FilterLfoDepth = Jitter(p.FilterLfoDepth, 0.05f, 0.9f, amount, rng);
         p.DriftAmount = Jitter(p.DriftAmount, 0f, 0.8f, amount, rng);
         p.FormantMotion = Jitter(p.FormantMotion, 0f, 0.5f, amount, rng);
+        p.AttackBloom = Jitter(p.AttackBloom, 0f, 1f, amount, rng);
         p.AmpLfoDepth = Jitter(p.AmpLfoDepth, 0f, 0.35f, amount, rng);
         p.PwmRateHz = Jitter(p.PwmRateHz, 0.02f, 0.3f, amount, rng);
         p.PwmDepth = Jitter(p.PwmDepth, 0f, 1f, amount, rng);

@@ -2,6 +2,7 @@ using LustPad.Core;
 using LustPad.Core.Audio;
 using LustPad.Core.Export;
 using LustPad.Core.Presets;
+using LustPad.Core.Synthesis;
 
 namespace LustPad.Core.Tests;
 
@@ -24,6 +25,75 @@ public class PadQualityTests
         foreach (var v in a.Interleaved)
             s += v * (double)v;
         return Math.Sqrt(s / Math.Max(1, a.Interleaved.Length));
+    }
+
+    private static double RmsDiff(LoopProcessor.LoopResult a, LoopProcessor.LoopResult b)
+    {
+        double s = 0;
+        int n = Math.Min(a.Interleaved.Length, b.Interleaved.Length);
+        for (int i = 0; i < n; i++)
+        {
+            double d = a.Interleaved[i] - b.Interleaved[i];
+            s += d * d;
+        }
+        return Math.Sqrt(s / Math.Max(1, n));
+    }
+
+    /// <summary>Resonator-probe band energy (relative, not calibrated SPL).</summary>
+    private static double BandEnergy(LoopProcessor.LoopResult a, float fLo, float fHi)
+    {
+        int ch = a.Channels;
+        int n = a.FrameCount;
+        double sr = a.SampleRate;
+        double w = 2 * Math.PI * ((fLo + fHi) * 0.5) / sr;
+        double r = 0.995;
+        double coeff = 2 * r * Math.Cos(w);
+        double z1 = 0, z2 = 0, e = 0;
+        int start = n / 5;
+        int end = n - n / 10;
+        for (int i = start; i < end; i++)
+        {
+            double x = ch == 1
+                ? a.Interleaved[i]
+                : 0.5 * (a.Interleaved[i * 2] + a.Interleaved[i * 2 + 1]);
+            double y = x + coeff * z1 - r * r * z2;
+            z2 = z1;
+            z1 = y;
+            e += y * y;
+        }
+        return e / Math.Max(1, end - start);
+    }
+
+    private static double SpectralCentroid(LoopProcessor.LoopResult a)
+    {
+        float[] centers = [150, 300, 500, 800, 1200, 1800, 2500, 3500, 5000];
+        double num = 0, den = 0;
+        foreach (var f in centers)
+        {
+            double e = BandEnergy(a, f * 0.8f, f * 1.2f);
+            num += e * f;
+            den += e;
+        }
+        return den > 1e-20 ? num / den : 0;
+    }
+
+    private static PadParameters FormantProbe(float vowel, float amount = 1f)
+    {
+        var p = ShortPad();
+        p.DurationSeconds = 2f;
+        p.FormantAmount = amount;
+        p.Vowel = vowel;
+        p.FormantResonance = 0.7f;
+        p.FormantMotion = 0f;
+        p.CutoffHz = 5000f;
+        p.ChorusMix = 0f;
+        p.ReverbMix = 0f;
+        p.NoiseLevel = 0f;
+        p.FilterLfoDepth = 0f;
+        p.FilterEnvAmount = 0f;
+        p.Drive = 0f;
+        p.Seed = 3;
+        return p;
     }
 
     [Fact]
@@ -160,75 +230,68 @@ public class PadQualityTests
     [Fact]
     public void Formant_oo_vs_ah_changes_spectrum_strongly()
     {
-        static double BandEnergy(LoopProcessor.LoopResult a, float fLo, float fHi)
-        {
-            // Crude DFT-free proxy: 1st-order BP via goertzel-ish block mean of rectified
-            // differentiator-smoothed energy is weak; use time-domain resonant probe instead.
-            // Simple: count spectral proxy via zero-crossing + amplitude in filtered copy.
-            // Better: FIR sliding energy via biquad bandpass on mono.
-            int ch = a.Channels;
-            int n = a.FrameCount;
-            double sr = a.SampleRate;
-            // One-pole complex resonator energy estimate
-            double w = 2 * Math.PI * ((fLo + fHi) * 0.5) / sr;
-            double r = 0.995;
-            double cosw = Math.Cos(w);
-            double coeff = 2 * r * cosw;
-            double z1 = 0, z2 = 0;
-            double e = 0;
-            int start = n / 5;
-            int end = n - n / 10;
-            for (int i = start; i < end; i++)
-            {
-                double x = ch == 1
-                    ? a.Interleaved[i]
-                    : 0.5 * (a.Interleaved[i * 2] + a.Interleaved[i * 2 + 1]);
-                double y = x + coeff * z1 - r * r * z2;
-                z2 = z1;
-                z1 = y;
-                e += y * y;
-            }
-            return e / Math.Max(1, end - start);
-        }
-
-        var oo = ShortPad();
-        oo.DurationSeconds = 2f;
-        oo.FormantAmount = 0.95f;
-        oo.Vowel = 0f; // Oo
-        oo.FormantResonance = 0.7f;
-        oo.FormantMotion = 0f;
-        oo.CutoffHz = 5000f;
-        oo.ChorusMix = 0f;
-        oo.ReverbMix = 0f;
-        oo.NoiseLevel = 0f;
-        oo.Seed = 3;
-
-        var ah = oo.Clone();
-        ah.Vowel = 0.5f; // Ah
-
-        var aOo = PadRenderer.Generate(oo);
-        var aAh = PadRenderer.Generate(ah);
+        var aOo = PadRenderer.Generate(FormantProbe(vowel: 0f));
+        var aAh = PadRenderer.Generate(FormantProbe(vowel: 0.5f));
 
         // Oo emphasizes low F1/F2 cluster; Ah has more mid (F2 ~1.2 kHz)
-        double ooLow = BandEnergy(aOo, 200, 700);
-        double ahLow = BandEnergy(aAh, 200, 700);
-        double ooMid = BandEnergy(aOo, 900, 1600);
-        double ahMid = BandEnergy(aAh, 900, 1600);
+        double ooRatio = BandEnergy(aOo, 900, 1600) / (BandEnergy(aOo, 200, 700) + 1e-12);
+        double ahRatio = BandEnergy(aAh, 900, 1600) / (BandEnergy(aAh, 200, 700) + 1e-12);
+        Assert.True(ahRatio > ooRatio * 3.0,
+            $"Ah should be clearly brighter mid/low than Oo (oo={ooRatio:F3}, ah={ahRatio:F3})");
 
-        double ooRatio = ooMid / (ooLow + 1e-12);
-        double ahRatio = ahMid / (ahLow + 1e-12);
-        Assert.True(ahRatio > ooRatio * 1.15,
-            $"Ah should be brighter mid/low than Oo (oo={ooRatio:F3}, ah={ahRatio:F3})");
+        Assert.True(RmsDiff(aOo, aAh) > 0.08, "Oo vs Ah must change the waveform substantially");
+        Assert.True(SpectralCentroid(aAh) > SpectralCentroid(aOo) + 20,
+            $"Ah centroid should sit above Oo (oo={SpectralCentroid(aOo):F0}, ah={SpectralCentroid(aAh):F0})");
+    }
 
-        // Also raw sample difference must be large (not a no-op path)
-        double diff = 0;
-        int n = Math.Min(aOo.Interleaved.Length, aAh.Interleaved.Length);
-        for (int i = 0; i < n; i++)
-        {
-            double d = aOo.Interleaved[i] - aAh.Interleaved[i];
-            diff += d * d;
-        }
-        Assert.True(Math.Sqrt(diff / n) > 0.02, "Oo vs Ah must change the waveform substantially");
+    [Fact]
+    public void Formant_ee_has_more_highs_than_oo()
+    {
+        var aOo = PadRenderer.Generate(FormantProbe(vowel: 0f));
+        var aEe = PadRenderer.Generate(FormantProbe(vowel: 1f));
+
+        double ooHigh = BandEnergy(aOo, 1800, 2800) / (BandEnergy(aOo, 200, 700) + 1e-12);
+        double eeHigh = BandEnergy(aEe, 1800, 2800) / (BandEnergy(aEe, 200, 700) + 1e-12);
+        Assert.True(eeHigh > ooHigh * 3.0,
+            $"Ee should have much more 2 kHz energy than Oo (oo={ooHigh:F4}, ee={eeHigh:F4})");
+        Assert.True(RmsDiff(aOo, aEe) > 0.08);
+    }
+
+    [Fact]
+    public void Formant_amount_q_and_shift_are_audible()
+    {
+        var dry = FormantProbe(vowel: 0.5f, amount: 0f);
+        var wet = FormantProbe(vowel: 0.5f, amount: 1f);
+
+        var qLo = FormantProbe(vowel: 0.5f);
+        qLo.FormantResonance = 0.05f;
+        var qHi = qLo.Clone();
+        qHi.FormantResonance = 0.95f;
+
+        var sLo = FormantProbe(vowel: 0.25f);
+        sLo.FormantShift = 0.7f;
+        var sHi = sLo.Clone();
+        sHi.FormantShift = 1.5f;
+
+        var aDry = PadRenderer.Generate(dry);
+        var aWet = PadRenderer.Generate(wet);
+        var aQlo = PadRenderer.Generate(qLo);
+        var aQhi = PadRenderer.Generate(qHi);
+        var aSlo = PadRenderer.Generate(sLo);
+        var aShi = PadRenderer.Generate(sHi);
+
+        Assert.True(RmsDiff(aDry, aWet) > 0.08,
+            $"formant mix 0→1 should reshape the pad (Δ={RmsDiff(aDry, aWet):F3})");
+
+        double qDelta = Math.Abs(SpectralCentroid(aQhi) - SpectralCentroid(aQlo));
+        Assert.True(qDelta > 25,
+            $"Formant Q should move the spectrum (Δcentroid={qDelta:F0})");
+        Assert.True(RmsDiff(aQlo, aQhi) > 0.04);
+
+        double sDelta = Math.Abs(SpectralCentroid(aShi) - SpectralCentroid(aSlo));
+        Assert.True(sDelta > 20,
+            $"Formant shift should move the spectrum (Δcentroid={sDelta:F0})");
+        Assert.True(RmsDiff(aSlo, aShi) > 0.06);
     }
 
     [Fact]
@@ -246,14 +309,7 @@ public class PadQualityTests
 
         var a = PadRenderer.Generate(sung);
         var b = PadRenderer.Generate(free);
-        double diff = 0;
-        int n = Math.Min(a.Interleaved.Length, b.Interleaved.Length);
-        for (int i = 0; i < n; i++)
-        {
-            double d = a.Interleaved[i] - b.Interleaved[i];
-            diff += d * d;
-        }
-        Assert.True(Math.Sqrt(diff / n) > 1e-5, "sung vs free formant motion should differ");
+        Assert.True(RmsDiff(a, b) > 0.01, "sung vs free formant motion should differ clearly");
     }
 
     [Fact]
@@ -498,6 +554,8 @@ public class PadQualityTests
         p.PulseWidth = 0.3f;
         p.PwmDepth = 0.6f;
         p.PwmRateHz = 0.09f;
+        p.SamplerEnvelope = true;
+        p.AttackBloom = 0.62f;
 
         var c = p.Clone();
         Assert.Equal(WaveformType.Pulse, c.LayerBWaveform);
@@ -507,6 +565,8 @@ public class PadQualityTests
         Assert.Equal(0.3f, c.PulseWidth);
         Assert.Equal(0.6f, c.PwmDepth);
         Assert.Equal(0.09f, c.PwmRateHz);
+        Assert.True(c.SamplerEnvelope);
+        Assert.Equal(0.62f, c.AttackBloom);
     }
 
     [Fact]
@@ -556,6 +616,7 @@ public class PadQualityTests
         src.Name = "KeepMe";
         src.CutoffHz = 1000f;
         src.DetuneCents = 10f;
+        src.SamplerEnvelope = true;
 
         var rng = new Random(12345);
         var tone = ToneRandomizer.Randomize(src, RandomizeScope.Tone, rng);
@@ -568,6 +629,7 @@ public class PadQualityTests
         Assert.Equal(src.ExportBitDepth, tone.ExportBitDepth);
         Assert.Equal(src.Name, tone.Name);
         Assert.Equal(src.LockEvolutionToLoop, tone.LockEvolutionToLoop);
+        Assert.True(tone.SamplerEnvelope);
 
         // Colour should move
         Assert.True(
@@ -584,5 +646,246 @@ public class PadQualityTests
             Math.Abs(motion.FilterLfoRateHz - src.FilterLfoRateHz) > 1e-4 ||
             Math.Abs(motion.Evolution - src.Evolution) > 1e-4 ||
             Math.Abs(motion.DriftAmount - src.DriftAmount) > 1e-4);
+    }
+
+    [Fact]
+    public void Sampler_envelope_prints_a_hold_loop_from_the_start()
+    {
+        static double WindowRms(LoopProcessor.LoopResult a, float t0, float t1)
+        {
+            int ch = a.Channels;
+            int i0 = Math.Clamp((int)(t0 * a.SampleRate), 0, a.FrameCount - 2);
+            int i1 = Math.Clamp((int)(t1 * a.SampleRate), i0 + 1, a.FrameCount);
+            double s = 0;
+            int n = 0;
+            for (int i = i0; i < i1; i++)
+            {
+                for (int c = 0; c < ch; c++)
+                {
+                    float v = a.Interleaved[i * ch + c];
+                    s += v * (double)v;
+                    n++;
+                }
+            }
+            return Math.Sqrt(s / Math.Max(1, n));
+        }
+
+        var baked = ShortPad();
+        baked.AttackSeconds = 1.4f;
+        baked.DecaySeconds = 0.4f;
+        baked.SustainLevel = 0.85f;
+        baked.SamplerEnvelope = false;
+        baked.ChorusMix = 0.2f;
+        baked.ReverbMix = 0.15f;
+
+        var hold = baked.Clone();
+        hold.SamplerEnvelope = true;
+
+        var aBaked = PadRenderer.Generate(baked);
+        var aHold = PadRenderer.Generate(hold);
+
+        double bakedEarly = WindowRms(aBaked, 0.08f, 0.22f);
+        double bakedMid = WindowRms(aBaked, 0.85f, 1.05f);
+        double holdEarly = WindowRms(aHold, 0.08f, 0.22f);
+        double holdMid = WindowRms(aHold, 0.85f, 1.05f);
+
+        Assert.True(bakedEarly < bakedMid * 0.55,
+            $"baked attack should still be rising (early={bakedEarly:F4}, mid={bakedMid:F4})");
+        Assert.True(holdEarly > holdMid * 0.55,
+            $"hold loop should be at sustain from the start (early={holdEarly:F4}, mid={holdMid:F4})");
+        Assert.True(holdEarly > bakedEarly * 1.8,
+            $"hold loop must be much louder at the start than a baked 1.4s attack (hold={holdEarly:F4}, baked={bakedEarly:F4})");
+    }
+
+    [Fact]
+    public void Sampler_envelope_sfz_writes_attack_and_release()
+    {
+        var p = ShortPad();
+        p.Name = "HoldLoop";
+        p.SamplerEnvelope = true;
+        p.AttackSeconds = 2.25f;
+        p.ReleaseSeconds = 3.5f;
+        p.MidiNote = 48;
+
+        string dir = Path.Combine(Path.GetTempPath(), "lustpad-sfz-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var opts = new SfzExportOptions
+            {
+                Spacing = ZoneSpacing.Single,
+                LowKey = 48,
+                HighKey = 48,
+                SuggestedReleaseSeconds = 1.1f,
+            };
+            var result = SfzExporter.Export(p, dir, opts);
+            string text = File.ReadAllText(result.SfzPath);
+            Assert.Contains("ampeg_attack=2.25", text);
+            Assert.Contains("ampeg_release=3.50", text);
+            Assert.DoesNotContain("ampeg_attack=0.001", text);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Unison_detune_stacks_toward_the_edges()
+    {
+        const int voices = 7;
+        var shaped = new float[voices];
+        var linear = new float[voices];
+        for (int v = 0; v < voices; v++)
+        {
+            shaped[v] = UnisonLayout.DetuneSpread(v, voices);
+            linear[v] = UnisonLayout.UnitPosition(v, voices);
+        }
+
+        Assert.Equal(0f, shaped[3], 3);
+        Assert.Equal(-1f, shaped[0], 3);
+        Assert.Equal(1f, shaped[6], 3);
+
+        // Near-edge pair closer together than the centre gap
+        float edgeGap = MathF.Abs(shaped[1] - shaped[0]);
+        float centreGap = MathF.Abs(shaped[4] - shaped[3]);
+        Assert.True(edgeGap < centreGap * 0.7f,
+            $"edge gap {edgeGap:F3} should be tighter than centre gap {centreGap:F3}");
+
+        // Mid voices sit further out than a linear fence
+        Assert.True(MathF.Abs(shaped[2]) > MathF.Abs(linear[2]) + 0.05f);
+    }
+
+    [Fact]
+    public void Unison_bloom_is_gone_before_loop_start()
+    {
+        var p = ShortPad();
+        p.AttackBloom = 1f;
+        p.SamplerEnvelope = true;
+        p.LoopStartSeconds = 0.45f;
+        p.AttackSeconds = 2f;
+
+        float bloom = UnisonLayout.BloomSeconds(p);
+        float end = bloom + UnisonLayout.FadeSeconds(bloom);
+        Assert.True(end < p.LoopStartSeconds * 0.75f + 1e-4f,
+            $"bloom end {end:F3}s must finish before loop start {p.LoopStartSeconds:F2}s");
+
+        // Centre speaks immediately; an edge voice is still coming up early on
+        Assert.Equal(1f, UnisonLayout.OnsetGain(0, 48000, 0f, 0f));
+        float edgeDelay = bloom;
+        Assert.True(UnisonLayout.OnsetGain(100, 48000, edgeDelay, UnisonLayout.FadeSeconds(bloom)) < 0.05f);
+    }
+
+    [Fact]
+    public void Attack_bloom_changes_the_onset_not_the_loop()
+    {
+        static double WindowRms(LoopProcessor.LoopResult a, float t0, float t1)
+        {
+            int ch = a.Channels;
+            int i0 = Math.Clamp((int)(t0 * a.SampleRate), 0, a.FrameCount - 2);
+            int i1 = Math.Clamp((int)(t1 * a.SampleRate), i0 + 1, a.FrameCount);
+            double s = 0;
+            int n = 0;
+            for (int i = i0; i < i1; i++)
+            {
+                for (int c = 0; c < ch; c++)
+                {
+                    float v = a.Interleaved[i * ch + c];
+                    s += v * (double)v;
+                    n++;
+                }
+            }
+            return Math.Sqrt(s / Math.Max(1, n));
+        }
+
+        var flat = ShortPad();
+        flat.SamplerEnvelope = true;
+        flat.AttackBloom = 0f;
+        flat.UnisonVoices = 7;
+        flat.DetuneCents = 22f;
+        flat.ChorusMix = 0f;
+        flat.ReverbMix = 0f;
+        flat.LoopStartSeconds = 0.5f;
+
+        var bloom = flat.Clone();
+        bloom.AttackBloom = 1f;
+
+        var a0 = PadRenderer.Generate(flat);
+        var a1 = PadRenderer.Generate(bloom);
+
+        double early0 = WindowRms(a0, 0.005f, 0.025f);
+        double early1 = WindowRms(a1, 0.005f, 0.025f);
+        double loop0 = WindowRms(a0, 0.55f, 0.75f);
+        double loop1 = WindowRms(a1, 0.55f, 0.75f);
+
+        Assert.True(early1 < early0 * 0.92,
+            $"bloom should thin the first 25 ms (flat={early0:F4}, bloom={early1:F4})");
+        Assert.True(Math.Abs(loop1 - loop0) / (loop0 + 1e-6) < 0.12,
+            $"loop body should match once bloom is over (flat={loop0:F4}, bloom={loop1:F4})");
+    }
+
+    [Fact]
+    public void Chorus_mode_scaled_rates_snap_to_whole_cycles()
+    {
+        const float loop = 12.5f;
+        const float user = 0.4f; // 5 cycles already
+
+        static void AssertWholeCycles(float rate, float loopLen, string name)
+        {
+            if (rate <= 1e-6f)
+                return;
+            float cycles = rate * loopLen;
+            Assert.True(Math.Abs(cycles - MathF.Round(cycles)) < 1e-3f,
+                $"{name}: {rate:F4} Hz × {loopLen:F2}s = {cycles:F3} cycles");
+        }
+
+        AssertWholeCycles(LoopEvolution.SnapRate(user * 0.9f, loop), loop, "Juno I");
+        AssertWholeCycles(LoopEvolution.SnapRate(user * 1.35f, loop), loop, "Juno II");
+        AssertWholeCycles(LoopEvolution.SnapRate(user * 0.85f, loop), loop, "I+II A");
+        AssertWholeCycles(LoopEvolution.SnapRate(user * 1.4f + 0.05f, loop), loop, "I+II B");
+    }
+
+    [Fact]
+    public void Downsample_attenuates_above_output_nyquist()
+    {
+        const int srIn = 96_000;
+        const int frames = 48_000; // 0.5 s
+        var hi = Tone(srIn, frames, 28_000f); // above 24 kHz
+        var lo = Tone(srIn, frames, 1_000f);
+
+        var aHi = Downsampler.Downsample(hi, 2);
+        var aLo = Downsampler.Downsample(lo, 2);
+
+        Assert.Equal(48_000, aHi.SampleRate);
+        Assert.Equal(frames / 2, aHi.FrameCount);
+        Assert.True(Rms(aHi) < Rms(aLo) * 0.03,
+            $"28 kHz should be rejected at 48 kHz (hi={Rms(aHi):E3}, lo={Rms(aLo):E3})");
+        Assert.True(Rms(aLo) > 0.2, "1 kHz tone should survive");
+    }
+
+    private static LoopProcessor.LoopResult Tone(int sampleRate, int frames, float hz)
+    {
+        var data = new float[frames * 2];
+        double ph = 0;
+        double w = 2 * Math.PI * hz / sampleRate;
+        for (int i = 0; i < frames; i++)
+        {
+            float s = (float)Math.Sin(ph);
+            ph += w;
+            data[i * 2] = s;
+            data[i * 2 + 1] = s;
+        }
+
+        return new LoopProcessor.LoopResult
+        {
+            Interleaved = data,
+            Channels = 2,
+            SampleRate = sampleRate,
+            FrameCount = frames,
+            LoopStartFrame = frames / 5,
+            LoopEndFrame = frames,
+            LoopStartAdjustmentFrames = 0,
+            MatchError = 0,
+        };
     }
 }

@@ -222,6 +222,11 @@
                 <TextBlock Grid.Column="2" Classes="val" Text="{Binding DetuneCents, StringFormat={}{0:F1}}"/>
               </Grid>
               <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="label" Text="Bloom"/>
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding AttackBloom}"/>
+                <TextBlock Grid.Column="2" Classes="val" Text="{Binding AttackBloom, StringFormat={}{0:F2}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*,Auto">
                 <TextBlock Classes="label" Text="Stereo spread"/>
                 <Slider Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding StereoSpread}"/>
                 <TextBlock Grid.Column="2" Classes="val" Text="{Binding StereoSpread, StringFormat={}{0:F2}}"/>
@@ -403,6 +408,9 @@
           <Border Classes="card">
             <StackPanel>
               <TextBlock Classes="section" Text="ENVELOPE"/>
+              <CheckBox Content="Sampler ADSR (hold loop)" IsChecked="{Binding SamplerEnvelope}"/>
+              <TextBlock Classes="hint"
+                         Text="Print a sustain loop — no baked attack/release. A/R sliders write to the SFZ; pull loop start earlier."/>
               <Grid ColumnDefinitions="Auto,*,Auto">
                 <TextBlock Classes="label" Text="Attack s"/>
                 <Slider Grid.Column="1" Minimum="0.05" Maximum="6" Value="{Binding AttackSeconds}"/>

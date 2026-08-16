@@ -1,7 +1,7 @@
 namespace LustPad.Core.Audio;
 
 /// <summary>
-/// Integer-factor downsample with a simple multi-tap low-pass (offline quality).
+/// Integer-factor downsample with a Kaiser-windowed sinc low-pass (offline quality).
 /// Scales loop markers to the output rate.
 /// </summary>
 public static class Downsampler
@@ -21,28 +21,24 @@ public static class Downsampler
             outFrames = 1;
 
         var output = new float[outFrames * channels];
-
-        // Half-band-ish FIR coefficients (symmetric) for gentle anti-alias before decimation
-        // Applied as moving average weighted over `factor * 4` taps.
-        int taps = factor * 4;
-        var kernel = BuildLowpassKernel(taps);
+        var kernel = BuildSincKernel(factor);
+        int taps = kernel.Length;
+        int half = taps / 2;
 
         for (int of = 0; of < outFrames; of++)
         {
             int center = of * factor;
             for (int c = 0; c < channels; c++)
             {
-                float sum = 0, wsum = 0;
+                double sum = 0;
                 for (int t = 0; t < taps; t++)
                 {
-                    int src = center - taps / 2 + t;
+                    int src = center + t - half;
                     if ((uint)src >= (uint)inFrames)
                         continue;
-                    float w = kernel[t];
-                    sum += input.Interleaved[src * channels + c] * w;
-                    wsum += w;
+                    sum += input.Interleaved[src * channels + c] * kernel[t];
                 }
-                output[of * channels + c] = wsum > 1e-8f ? sum / wsum : 0f;
+                output[of * channels + c] = (float)sum;
             }
         }
 
@@ -61,21 +57,54 @@ public static class Downsampler
         };
     }
 
-    private static float[] BuildLowpassKernel(int taps)
+    /// <summary>
+    /// Cutoff just below the output Nyquist (0.45 / factor of the input rate)
+    /// so 96 kHz → 48 kHz does not fold 24–48 kHz back in.
+    /// </summary>
+    internal static float[] BuildSincKernel(int factor)
     {
-        var k = new float[taps];
+        int taps = factor == 4 ? 129 : 65; // odd, integer centre
+        float fc = 0.45f / factor; // cycles per input sample
         float mid = (taps - 1) * 0.5f;
-        float sum = 0;
+        const float beta = 8.5f;
+        float i0Beta = BesselI0(beta);
+
+        var k = new float[taps];
+        double sum = 0;
         for (int i = 0; i < taps; i++)
         {
-            float x = (i - mid) / mid;
-            // Raised cosine window
-            float w = 0.5f * (1f + MathF.Cos(x * MathF.PI));
-            k[i] = w;
-            sum += w;
+            float x = i - mid;
+            float sinc = x == 0f
+                ? 2f * fc
+                : MathF.Sin(2f * MathF.PI * fc * x) / (MathF.PI * x);
+            float n = x / mid;
+            float win = BesselI0(beta * MathF.Sqrt(MathF.Max(0f, 1f - n * n))) / i0Beta;
+            k[i] = sinc * win;
+            sum += k[i];
         }
+
+        float norm = (float)(1.0 / sum);
         for (int i = 0; i < taps; i++)
-            k[i] /= sum;
+            k[i] *= norm;
         return k;
+    }
+
+    /// <summary>Abramowitz &amp; Stegun 9.8.1 / 9.8.2 — I₀(x).</summary>
+    private static float BesselI0(float x)
+    {
+        float ax = MathF.Abs(x);
+        if (ax < 3.75f)
+        {
+            float y = x / 3.75f;
+            y *= y;
+            return 1f + y * (3.5156229f + y * (3.0899424f + y * (1.2067492f
+                + y * (0.2659732f + y * (0.0360768f + y * 0.0045813f)))));
+        }
+
+        float z = 3.75f / ax;
+        return MathF.Exp(ax) / MathF.Sqrt(ax) * (0.39894228f + z * (0.01328592f
+            + z * (0.00225319f + z * (-0.00157565f + z * (0.00916281f
+            + z * (-0.02057706f + z * (0.02635537f + z * (-0.01647633f
+            + z * 0.00392377f))))))));
     }
 }
