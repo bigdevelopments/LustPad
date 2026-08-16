@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish Windows x64
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          dotnet publish LustPad.App/LustPad.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -o publish/LustPad `
+            -p:Version=$ver `
+            -p:PublishReadyToRun=true
+          Copy-Item LICENSE, README.md publish/LustPad/
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path publish/LustPad -DestinationPath "LustPad-${{ github.ref_name }}-win-x64.zip"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          @"
+          Offline lush pad laboratory — unzip and run ``LustPad.exe``.
+
+          Self-contained **Windows x64** build. You do not need to install .NET separately. Preview uses WASAPI.
+
+          In your sampler: loop continuous. If you exported with **Sampler ADSR**, shape attack and release there.
+
+          ## What's in this cut
+          - Unison pads (PWM, formants Oo/Ah/Ee, Juno chorus, modulated reverb)
+          - Edge-weighted detune and attack bloom
+          - Loop lock + seamless crossfade
+          - WAV and multi-zone SFZ export (zones render in parallel)
+          - Optional hold-loop print for sampler ADSR
+          "@ | Set-Content -Encoding utf8 notes.md
+
+          gh release create "${{ github.ref_name }}" `
+            "LustPad-${{ github.ref_name }}-win-x64.zip" `
+            --title "LustPad ${{ github.ref_name }}" `
+            --notes-file notes.md
