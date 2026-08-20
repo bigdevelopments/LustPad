@@ -45,7 +45,7 @@ jobs:
           @"
           Offline lush pad laboratory — unzip and run ``LustPad.exe``.
 
-          One **Windows x64** executable (self-contained, .NET included). First launch may extract native libraries to a temp folder. Preview uses WASAPI.
+          One **Windows x64** executable (self-contained, .NET included). First launch may extract native libraries to a temp folder. Preview uses WinMM 16-bit with a ~400 ms buffer (USB interfaces such as Focusrite).
 
           In your sampler: loop continuous. If you exported with **Sampler ADSR**, shape attack and release there.
 

@@ -1,33 +1,40 @@
 using System;
-using System.Threading;
 using LustPad.Core.Audio;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace LustPad.Services;
 
 /// <summary>
-/// Plays generated float audio via WASAPI using NAudio.
-/// Supports seamless software looping of the loop region for preview.
+/// Plays generated float audio for preview via WinMM.
+/// WASAPI shared looked like the modern path but went silent on Focusrite USB;
+/// WaveOutEvent is what actually produced sound on that box. IEEE float at
+/// 100 ms was the choppy part — 16-bit PCM and a fat buffer are the fix.
 /// </summary>
 public sealed class AudioPreviewService : IDisposable
 {
+    // Preview is pre-rendered; this only delays the start of playback.
+    // 4 × ~100 ms gives USB / 13th-gen DPC spikes room to miss a callback.
+    private const int WaveOutLatencyMs = 400;
+    private const int WaveOutBuffers = 4;
+
     private readonly object _gate = new();
-    private WaveOutEvent? _waveOut;
+    private IWavePlayer? _player;
     private LoopingSampleProvider? _provider;
-    private float[]? _buffer;
-    private int _channels;
-    private int _sampleRate;
-    private int _frames;
-    private int _loopStart;
-    private int _loopEnd;
     private bool _disposed;
+
+    /// <summary>Backend shown in the status bar while playing.</summary>
+    public string OutputDescription { get; private set; } = "";
+
+    /// <summary>Raised when the player stops. <paramref name="exception"/> is set on a device error.</summary>
+    public event Action<Exception?>? Stopped;
 
     public bool IsPlaying
     {
         get
         {
             lock (_gate)
-                return _waveOut?.PlaybackState == PlaybackState.Playing;
+                return _player?.PlaybackState == PlaybackState.Playing;
         }
     }
 
@@ -38,19 +45,23 @@ public sealed class AudioPreviewService : IDisposable
         {
             StopUnlocked();
 
-            _buffer = audio.Interleaved;
-            _channels = audio.Channels;
-            _sampleRate = audio.SampleRate;
-            _frames = audio.FrameCount;
-            _loopStart = audio.LoopStartFrame;
-            _loopEnd = audio.LoopEndFrame;
-
             _provider = new LoopingSampleProvider(
-                _buffer, _channels, _sampleRate, _frames, _loopStart, _loopEnd, loop);
+                audio.Interleaved, audio.Channels, audio.SampleRate, audio.FrameCount,
+                audio.LoopStartFrame, audio.LoopEndFrame, loop);
 
-            _waveOut = new WaveOutEvent { DesiredLatency = 100 };
-            _waveOut.Init(_provider);
-            _waveOut.Play();
+            var waveOut = new WaveOutEvent
+            {
+                DeviceNumber = -1, // WAVE_MAPPER — same default device as before
+                DesiredLatency = WaveOutLatencyMs,
+                NumberOfBuffers = WaveOutBuffers,
+            };
+            // USB class drivers (Focusrite) are unreliable with IEEE float over MME.
+            waveOut.Init(new SampleToWaveProvider16(_provider));
+            waveOut.PlaybackStopped += OnPlayerStopped;
+
+            _player = waveOut;
+            OutputDescription = $"WinMM · 16-bit · {WaveOutLatencyMs} ms";
+            _player.Play();
         }
     }
 
@@ -62,20 +73,27 @@ public sealed class AudioPreviewService : IDisposable
 
     private void StopUnlocked()
     {
-        if (_waveOut is not null)
+        if (_player is not null)
         {
             try
             {
-                _waveOut.Stop();
-                _waveOut.Dispose();
+                _player.PlaybackStopped -= OnPlayerStopped;
+                _player.Stop();
+                _player.Dispose();
             }
             catch
             {
                 // ignore teardown races
             }
-            _waveOut = null;
+            _player = null;
         }
         _provider = null;
+        OutputDescription = "";
+    }
+
+    private void OnPlayerStopped(object? sender, StoppedEventArgs e)
+    {
+        Stopped?.Invoke(e.Exception);
     }
 
     public void Dispose()
@@ -90,7 +108,6 @@ public sealed class AudioPreviewService : IDisposable
     {
         private readonly float[] _data;
         private readonly int _channels;
-        private readonly int _frames;
         private readonly int _loopStart;
         private readonly int _loopEnd;
         private readonly bool _loop;
@@ -105,7 +122,6 @@ public sealed class AudioPreviewService : IDisposable
         {
             _data = data;
             _channels = channels;
-            _frames = frames;
             _loopStart = Math.Clamp(loopStart, 0, frames - 1);
             _loopEnd = Math.Clamp(loopEnd, _loopStart + 1, frames);
             _loop = loop;
@@ -132,13 +148,12 @@ public sealed class AudioPreviewService : IDisposable
                     }
                 }
 
+                int take = Math.Min(_loopEnd - _frame, framesRequested - framesWritten);
                 int src = _frame * _channels;
                 int dst = offset + framesWritten * _channels;
-                for (int c = 0; c < _channels; c++)
-                    buffer[dst + c] = _data[src + c];
-
-                _frame++;
-                framesWritten++;
+                Array.Copy(_data, src, buffer, dst, take * _channels);
+                _frame += take;
+                framesWritten += take;
             }
 
             return framesWritten * _channels;

@@ -69,10 +69,21 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             BuiltInPresetNames.Add(name);
 
         PropertyChanged += OnViewModelPropertyChanged;
+        _preview.Stopped += OnPreviewStopped;
 
         SelectedBuiltInPreset = BuiltInPresetNames[0];
         ApplyFromParameters(PadParameters.CreateDefaultLush());
         StatusText = "Rendering default pad…";
+    }
+
+    private void OnPreviewStopped(Exception? error)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            IsPlaying = false;
+            if (error is not null)
+                StatusText = $"Preview stopped: {error.Message}";
+        });
     }
 
     public ObservableCollection<string> BuiltInPresetNames { get; } = new();
@@ -641,7 +652,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             _preview.Play(audio, loop: true);
             IsPlaying = true;
             StatusText =
-                $"Playing · {audio.FrameCount / (double)audio.SampleRate:F1}s · {JoinInfo}";
+                $"Playing · {_preview.OutputDescription} · {audio.FrameCount / (double)audio.SampleRate:F1}s · {JoinInfo}";
         }
         catch (Exception ex)
         {
@@ -970,6 +981,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         if (_disposed) return;
         _disposed = true;
         PropertyChanged -= OnViewModelPropertyChanged;
+        _preview.Stopped -= OnPreviewStopped;
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
         _renderCts?.Cancel();

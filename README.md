@@ -48,7 +48,7 @@ With **Sampler ADSR** on, both attack and release are left to the sampler. Off (
 
 - **C# / [.NET 10 SDK](https://dotnet.microsoft.com/download)** (or compatible)
 - **[Avalonia](https://avaloniaui.net/)** UI (pulled in via NuGet with the project)
-- Windows recommended for NAudio preview (WASAPI); Avalonia itself is cross-platform
+- Windows recommended for NAudio preview (WinMM); Avalonia itself is cross-platform
 
 ---
 
