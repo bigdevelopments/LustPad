@@ -18,12 +18,17 @@ internal sealed class SimpleReverb
     private readonly DelayLine _predelayL;
     private readonly DelayLine _predelayR;
     private readonly float _sampleRate;
+    private readonly float _invSampleRate;
     private readonly float _modDepthSamples;
     private bool _modReady;
+    private bool _active;
+    private float _mix, _g, _dampCoeff, _inj;
+    private int _preSamples;
 
     public SimpleReverb(float sampleRate, int seed)
     {
         _sampleRate = sampleRate;
+        _invSampleRate = 1f / sampleRate;
         // Longer than the old ~19–97 ms tank — pad space, not a small room.
         int[] ms = [37, 43, 53, 67, 79, 97, 113, 131, 149, 173, 193, 223];
         var rng = new Random(seed ^ 0x5f3759df);
@@ -44,29 +49,36 @@ internal sealed class SimpleReverb
         _predelayR = new DelayLine(Math.Max(2, (int)(0.08f * sampleRate)));
     }
 
-    public (float left, float right) Process(
-        float left, float right, float mix, float decay, float damping, float predelayMs,
-        long sampleIndex = 0, float loopLenSec = 0f, bool lockToLoop = false)
+    public void Prepare(
+        float mix, float decay, float damping, float predelayMs,
+        float loopLenSec, bool lockToLoop)
     {
-        mix = Math.Clamp(mix, 0f, 1f);
+        _mix = Math.Clamp(mix, 0f, 1f);
+        _active = _mix > 0.001f;
         decay = Math.Clamp(decay, 0.1f, 0.96f);
         damping = Math.Clamp(damping, 0f, 0.95f);
-        if (mix <= 0.001f)
+        _dampCoeff = 1f - damping * 0.55f;
+        _g = Math.Clamp(0.52f + decay * 0.45f, 0.4f, 0.97f);
+        _inj = 0.38f / MathF.Sqrt(Size);
+        _preSamples = Math.Clamp((int)(predelayMs * 0.001f * _sampleRate), 1, _predelayL.Length - 2);
+        if (_active)
+            EnsureModRates(loopLenSec, lockToLoop);
+    }
+
+    public (float left, float right) Process(float left, float right, long sampleIndex)
+    {
+        if (!_active)
             return (left, right);
 
-        EnsureModRates(loopLenSec, lockToLoop);
-
-        int preSamples = Math.Clamp((int)(predelayMs * 0.001f * _sampleRate), 1, _predelayL.Length - 2);
         _predelayL.Write(left);
         _predelayR.Write(right);
-        float inL = _predelayL.ReadDelayed(preSamples);
-        float inR = _predelayR.ReadDelayed(preSamples);
+        float inL = _predelayL.ReadDelayed(_preSamples);
+        float inR = _predelayR.ReadDelayed(_preSamples);
         float input = (inL + inR) * 0.5f;
 
-        float dampCoeff = 1f - damping * 0.55f;
-        // Decay 0.7 ≈ g 0.85 — longer air than the old parallel-comb tank.
-        float g = Math.Clamp(0.52f + decay * 0.45f, 0.4f, 0.97f);
-        float inj = input * (0.38f / MathF.Sqrt(Size));
+        float dampCoeff = _dampCoeff;
+        float g = _g;
+        float inj = input * _inj;
 
         float sum = 0f;
         for (int i = 0; i < Size; i++)
@@ -96,9 +108,10 @@ internal sealed class SimpleReverb
         float wetL = accL * 0.85f + accR * 0.15f;
         float wetR = accR * 0.85f + accL * 0.15f;
 
+        float dry = 1f - _mix;
         return (
-            left * (1f - mix) + wetL * mix,
-            right * (1f - mix) + wetR * mix
+            left * dry + wetL * _mix,
+            right * dry + wetR * _mix
         );
     }
 
@@ -114,14 +127,8 @@ internal sealed class SimpleReverb
         _modReady = true;
     }
 
-    private float SinAt(long sampleIndex, float rateHz, float phase0)
-    {
-        if (rateHz <= 1e-7f)
-            return MathF.Sin(phase0 * MathF.PI * 2f);
-        double phase = phase0 + rateHz * sampleIndex / _sampleRate;
-        phase -= Math.Floor(phase);
-        return MathF.Sin((float)(phase * Math.PI * 2.0));
-    }
+    private float SinAt(long sampleIndex, float rateHz, float phase0) =>
+        FastTrig.SinTurns(phase0 + rateHz * sampleIndex * _invSampleRate);
 
     private sealed class ModDelay
     {

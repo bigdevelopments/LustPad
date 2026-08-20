@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace LustPad.Core.Synthesis;
 
 /// <summary>
@@ -15,9 +17,10 @@ internal sealed class Oscillator
     }
 
     /// <param name="pulseWidth">Duty cycle for <see cref="WaveformType.Pulse"/> (0.05–0.95).</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public float Next(float frequencyHz, WaveformType waveform, float pulseWidth = 0.5f)
     {
-        frequencyHz = Math.Clamp(frequencyHz, 1f, (float)(_sampleRate * 0.45));
+        if (frequencyHz < 1f) frequencyHz = 1f;
         double dt = frequencyHz / _sampleRate;
         float sample = waveform switch
         {
@@ -43,6 +46,7 @@ internal sealed class Oscillator
         return 4f * MathF.Abs(t - 0.5f) - 1f;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float PolyBlepSaw(double t, double dt)
     {
         float value = (float)(2.0 * t - 1.0);
@@ -63,6 +67,7 @@ internal sealed class Oscillator
         return value;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float PolyBlep(double t, double dt)
     {
         if (t < dt)

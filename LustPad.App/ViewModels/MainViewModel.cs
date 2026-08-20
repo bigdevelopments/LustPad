@@ -27,11 +27,16 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     /// <summary>True while applying a full parameter snapshot (avoids N debounce storms).</summary>
     private bool _suspendAutoRender;
+    /// <summary>True while we set the preset combo programmatically (no autoload).</summary>
+    private bool _suspendPresetLoad;
+
+    private const string CustomPresetName = "Custom";
 
     private CancellationTokenSource? _debounceCts;
     private CancellationTokenSource? _renderCts;
     private int _paramsVersion;
     private int _readyVersion = -1;
+    private int _queuedFingerprint;
     private TaskCompletionSource<bool>? _readyTcs;
 
     /// <summary>UI-only / non-audio properties — changing these must not re-render.</summary>
@@ -50,7 +55,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         nameof(NoteLabel),
         nameof(VowelLabel),
         nameof(FrequencyHz),
-        // Selection until Apply / Load is clicked
+        nameof(PlayToggleLabel),
+        // Combo selection loads on change; do not re-render from the name itself
         nameof(SelectedBuiltInPreset),
         nameof(SelectedMacro),
         nameof(SelectedRandomizeScope),
@@ -67,13 +73,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     {
         foreach (var (name, _) in PresetStore.BuiltInPresets)
             BuiltInPresetNames.Add(name);
+        BuiltInPresetNames.Add(CustomPresetName);
 
         PropertyChanged += OnViewModelPropertyChanged;
         _preview.Stopped += OnPreviewStopped;
 
-        SelectedBuiltInPreset = BuiltInPresetNames[0];
-        ApplyFromParameters(PadParameters.CreateDefaultLush());
-        StatusText = "Rendering default pad…";
+        SelectedBuiltInPreset = BuiltInPresetNames[0]; // autoloads Lush Pad
     }
 
     private void OnPreviewStopped(Exception? error)
@@ -107,6 +112,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isPlaying;
+    public string PlayToggleLabel => IsPlaying ? "■ Stop" : "▶ Play";
+    partial void OnIsPlayingChanged(bool value) => OnPropertyChanged(nameof(PlayToggleLabel));
     /// <summary>Background preview render in flight (UI stays interactive).</summary>
     [ObservableProperty] private bool _isRenderingPreview;
     [ObservableProperty] private string? _selectedBuiltInPreset;
@@ -347,7 +354,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         };
     }
 
-    public void ApplyFromParameters(PadParameters p)
+    public void ApplyFromParameters(PadParameters p, bool keepPresetSelection = false)
     {
         _suspendAutoRender = true;
         try
@@ -430,14 +437,33 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             _suspendAutoRender = false;
         }
 
+        if (!keepPresetSelection)
+            MarkCustom();
+
         // Full patch change — render ASAP (no slider debounce).
         RequestPreviewRender(immediate: true);
+    }
+
+    private void MarkCustom()
+    {
+        if (SelectedBuiltInPreset == CustomPresetName) return;
+        _suspendPresetLoad = true;
+        SelectedBuiltInPreset = CustomPresetName;
+        _suspendPresetLoad = false;
+    }
+
+    partial void OnSelectedBuiltInPresetChanged(string? value)
+    {
+        if (_suspendPresetLoad || _disposed) return;
+        if (string.IsNullOrEmpty(value) || value == CustomPresetName) return;
+        LoadBuiltIn();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_disposed || _suspendAutoRender || IsBusy) return;
         if (e.PropertyName is null || AutoRenderIgnore.Contains(e.PropertyName)) return;
+        MarkCustom();
         // Hold-loop print: attack/decay/release are sampler suggestions only.
         if (SamplerEnvelope && e.PropertyName is nameof(AttackSeconds)
                 or nameof(DecaySeconds) or nameof(ReleaseSeconds))
@@ -452,6 +478,13 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private void RequestPreviewRender(bool immediate)
     {
         if (_disposed || IsBusy) return;
+
+        // Slider round-trips (float ↔ double) re-fire PropertyChanged with the same
+        // sound. That used to queue render after render and flash the status line.
+        int fp = ToParameters().ContentFingerprint();
+        if (fp == _queuedFingerprint)
+            return;
+        _queuedFingerprint = fp;
 
         _paramsVersion++;
 
@@ -475,7 +508,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         try
         {
             if (!immediate)
-                await Task.Delay(400, debounceToken).ConfigureAwait(true);
+                await Task.Delay(200, debounceToken).ConfigureAwait(true);
             else
                 await Task.Yield();
         }
@@ -499,7 +532,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         var p = ToParameters();
         IsRenderingPreview = true;
-        if (!IsBusy)
+        // Don't clobber "Playing…" — that's what made the status strobe while ▶ was down.
+        if (!IsBusy && !IsPlaying)
             StatusText = immediate
                 ? "Rendering preview…"
                 : "Rendering preview (background)…";
@@ -507,7 +541,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         try
         {
             var sw = Stopwatch.StartNew();
-            var audio = await Task.Run(() => PadRenderer.Generate(p, ct), ct).ConfigureAwait(true);
+            var audio = await Task.Run(() => PadRenderer.Generate(p, ct, interactive: true), ct)
+                .ConfigureAwait(true);
 
             if (_disposed || ct.IsCancellationRequested || version != _paramsVersion)
             {
@@ -517,12 +552,26 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
             _lastAudio = audio;
             _readyVersion = version;
-            UpdateWaveformFrom(audio, p);
             sw.Stop();
 
-            if (!IsBusy)
-                StatusText =
-                    $"Preview ready ({sw.ElapsedMilliseconds} ms) · press ▶ to play · {JoinInfo}";
+            // Waveform/status updates can make Avalonia sliders write their values
+            // back. Hold auto-render until after layout so that doesn't retrigger.
+            _suspendAutoRender = true;
+            try
+            {
+                UpdateWaveformFrom(audio, p);
+                if (IsPlaying)
+                    StartPlayback(audio);
+                else if (!IsBusy)
+                    StatusText =
+                        $"Preview ready ({sw.ElapsedMilliseconds} ms) · ▶ to play · {JoinInfo}";
+            }
+            finally
+            {
+                Dispatcher.UIThread.Post(
+                    () => { if (!_disposed) _suspendAutoRender = false; },
+                    DispatcherPriority.Input);
+            }
 
             tcs.TrySetResult(true);
         }
@@ -561,7 +610,6 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             $"join err {audio.MatchError:F3}{adj} · {audio.SampleRate / 1000} kHz";
     }
 
-    [RelayCommand]
     private void LoadBuiltIn()
     {
         if (SelectedBuiltInPreset is null) return;
@@ -570,7 +618,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         if (match.Factory is null) return;
         var p = match.Factory();
         p.Name = match.Name; // keep export name in sync with built-in label
-        ApplyFromParameters(p);
+        ApplyFromParameters(p, keepPresetSelection: true);
         StatusText = $"Loaded built-in: {match.Name}";
     }
 
@@ -581,28 +629,26 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         StatusText = $"Seed → {Seed} (subtle voice phase / chorus differences)";
     }
 
-    [RelayCommand]
-    private void RandomizeTone()
+    [RelayCommand(AllowConcurrentExecutions = false)]
+    private async Task RandomizeToneAsync()
     {
+        if (IsBusy) return;
         var scope = ToneRandomizer.ParseScope(SelectedRandomizeScope);
         var before = ToParameters();
         var after = ToneRandomizer.Randomize(before, scope);
         ApplyFromParameters(after);
-        StatusText = scope switch
-        {
-            RandomizeScope.Subtle =>
-                $"Subtle randomize · seed {after.Seed} · note/duration/loop/export unchanged",
-            RandomizeScope.Motion =>
-                $"Motion randomized · seed {after.Seed} · timbre + structure kept",
-            RandomizeScope.Space =>
-                $"Space randomized · seed {after.Seed} · oscillators/filter kept",
-            _ =>
-                $"Tone randomized · seed {after.Seed} · note {after.MidiNote}, " +
-                $"{after.DurationSeconds:F0}s, loop @ {after.LoopStartSeconds:F1}s kept",
-        };
+        await PreviewAsync();
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = false)]
+    private async Task TogglePreviewAsync()
+    {
+        if (IsPlaying)
+            StopPreview();
+        else
+            await PreviewAsync();
+    }
+
     private async Task PreviewAsync()
     {
         if (IsBusy) return; // export / SFZ in progress
@@ -648,16 +694,20 @@ public partial class MainViewModel : ViewModelBase, IDisposable
                 }
             }
 
-            var audio = _lastAudio!;
-            _preview.Play(audio, loop: true);
-            IsPlaying = true;
-            StatusText =
-                $"Playing · {_preview.OutputDescription} · {audio.FrameCount / (double)audio.SampleRate:F1}s · {JoinInfo}";
+            StartPlayback(_lastAudio!);
         }
         catch (Exception ex)
         {
             StatusText = $"Preview failed: {ex.Message}";
         }
+    }
+
+    private void StartPlayback(LoopProcessor.LoopResult audio)
+    {
+        _preview.Play(audio, loop: true);
+        IsPlaying = true;
+        StatusText =
+            $"Playing · {_preview.OutputDescription} · {audio.FrameCount / (double)audio.SampleRate:F1}s · {JoinInfo}";
     }
 
     [RelayCommand]

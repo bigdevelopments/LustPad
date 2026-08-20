@@ -153,6 +153,85 @@ public sealed class PadParameters
     public float FrequencyHz =>
         440f * MathF.Pow(2f, (MidiNote - 69 + FineTuneCents / 100f) / 12f);
 
+    /// <summary>
+    /// Quantized hash of the fields that change the printed audio.
+    /// Used to ignore slider round-trip noise that would otherwise retrigger preview forever.
+    /// </summary>
+    public int ContentFingerprint()
+    {
+        var h = new HashCode();
+        h.Add(Seed);
+        h.Add(MidiNote);
+        h.Add(Q(FineTuneCents, 0.05f));
+        h.Add((int)Waveform);
+        h.Add(UnisonVoices);
+        h.Add(Q(DetuneCents, 0.05f));
+        h.Add(Q(StereoSpread, 0.001f));
+        h.Add(Q(AttackBloom, 0.001f));
+        h.Add(Q(OscLevel, 0.001f));
+        h.Add(Q(SubLevel, 0.001f));
+        h.Add(Q(FifthLevel, 0.001f));
+        h.Add(Q(OctaveLevel, 0.001f));
+        h.Add(Q(PulseWidth, 0.001f));
+        h.Add(Q(PwmDepth, 0.001f));
+        h.Add(Q(PwmRateHz, 0.0005f));
+        h.Add(Q(NoiseLevel, 0.001f));
+        h.Add((int)NoiseType);
+        h.Add(Q(NoiseCutoffHz, 0.5f));
+        h.Add(Q(NoiseStereo, 0.001f));
+        h.Add(Q(NoiseMotion, 0.001f));
+        h.Add(Q(NoiseMotionRateHz, 0.0005f));
+        h.Add(Q(CutoffHz, 0.5f));
+        h.Add(Q(Resonance, 0.001f));
+        h.Add(Q(FilterLfoRateHz, 0.0005f));
+        h.Add(Q(FilterLfoDepth, 0.001f));
+        h.Add(Q(FilterEnvAmount, 0.001f));
+        h.Add(Q(FormantAmount, 0.001f));
+        h.Add(Q(Vowel, 0.001f));
+        h.Add(Q(FormantResonance, 0.001f));
+        h.Add(Q(FormantShift, 0.001f));
+        h.Add(Q(FormantMotion, 0.001f));
+        h.Add(Q(FormantMotionRateHz, 0.0005f));
+        h.Add(FormantSung);
+        h.Add(SamplerEnvelope);
+        h.Add(Q(AttackSeconds, 0.01f));
+        h.Add(Q(DecaySeconds, 0.01f));
+        h.Add(Q(SustainLevel, 0.001f));
+        h.Add(Q(ReleaseSeconds, 0.01f));
+        h.Add(Q(AmpLfoRateHz, 0.0005f));
+        h.Add(Q(AmpLfoDepth, 0.001f));
+        h.Add(Q(DriftAmount, 0.001f));
+        h.Add(Q(DriftRateHz, 0.0005f));
+        h.Add(Q(Evolution, 0.001f));
+        h.Add(Q(LayerBLevel, 0.001f));
+        h.Add(Q(LayerBDetuneCents, 0.05f));
+        h.Add(Q(LayerBCutoffRatio, 0.001f));
+        h.Add((int)LayerBWaveform);
+        h.Add(LayerBVoices);
+        h.Add(Q(ChorusMix, 0.001f));
+        h.Add(Q(ChorusRateHz, 0.001f));
+        h.Add(Q(ChorusDepthMs, 0.01f));
+        h.Add((int)ChorusMode);
+        h.Add(Q(ReverbMix, 0.001f));
+        h.Add(Q(ReverbDecay, 0.001f));
+        h.Add(Q(ReverbDamping, 0.001f));
+        h.Add(Q(ReverbPredelayMs, 0.05f));
+        h.Add(Q(Drive, 0.001f));
+        h.Add(Q(OutputGainDb, 0.05f));
+        h.Add(Q(StereoWidth, 0.001f));
+        h.Add(OversampleFactor);
+        h.Add(Archival96kHz);
+        h.Add(Q(DurationSeconds, 0.01f));
+        h.Add(Q(LoopStartSeconds, 0.01f));
+        h.Add(Q(CrossfadeSeconds, 0.01f));
+        h.Add(Stereo);
+        h.Add(LockEvolutionToLoop);
+        h.Add(OptimizeLoopPoint);
+        return h.ToHashCode();
+    }
+
+    private static int Q(float x, float step) => (int)MathF.Round(x / step);
+
     public PadParameters Clone()
     {
         return new PadParameters

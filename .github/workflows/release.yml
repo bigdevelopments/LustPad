@@ -50,11 +50,13 @@ jobs:
           In your sampler: loop continuous. If you exported with **Sampler ADSR**, shape attack and release there.
 
           ## What's in this cut
+          - Faster preview (SIMD unison, skipped loop-search while sketching)
+          - Play toggle + exports in the top bar; preset combo autoloads; randomize plays
+          - Slider edits keep playing instead of requiring stop/play
+          - Locked violet accent (no longer follows Windows personalization)
+          - WinMM preview no longer deadlocks the UI after repeated randomize
           - Unison pads (PWM, formants Oo/Ah/Ee, Juno chorus, modulated reverb)
-          - Edge-weighted detune and attack bloom
-          - Loop lock + seamless crossfade
-          - WAV and multi-zone SFZ export (zones render in parallel)
-          - Optional hold-loop print for sampler ADSR
+          - WAV and multi-zone SFZ export
           "@ | Set-Content -Encoding utf8 notes.md
 
           gh release create "${{ github.ref_name }}" `

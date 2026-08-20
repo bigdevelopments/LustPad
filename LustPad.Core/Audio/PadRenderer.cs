@@ -9,10 +9,21 @@ namespace LustPad.Core.Audio;
 public static class PadRenderer
 {
     public static LoopProcessor.LoopResult Generate(
-        PadParameters parameters, CancellationToken cancellationToken = default)
+        PadParameters parameters, CancellationToken cancellationToken = default,
+        bool interactive = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var locked = LoopEvolution.ApplyLoopLock(parameters);
+        if (interactive)
+        {
+            // Same oscillators/FX as export; skip 2× print and loop-start search
+            // so slider preview can keep up. Crossfade still runs at the requested start.
+            if (ReferenceEquals(locked, parameters))
+                locked = parameters.Clone();
+            locked.OversampleFactor = 1;
+            locked.OptimizeLoopPoint = false;
+            locked.Archival96kHz = false;
+        }
 
         int factor = Math.Clamp(locked.OversampleFactor, 1, 2);
         int workingRate = PadParameters.SampleRate * factor;

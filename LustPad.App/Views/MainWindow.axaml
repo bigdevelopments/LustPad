@@ -108,15 +108,15 @@
     <!-- Top bar -->
     <Border DockPanel.Dock="Top" Background="#18181B" CornerRadius="6"
             Padding="8,5" Margin="0,0,0,6" BorderBrush="#27272A" BorderThickness="1">
-      <Grid ColumnDefinitions="Auto,*">
+      <Grid ColumnDefinitions="Auto,*,Auto">
         <TextBlock Text="LustPad" FontSize="14" FontWeight="Bold" Foreground="#EDE9FE"
                    VerticalAlignment="Center" Margin="0,0,10,0"/>
         <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="4" LineSpacing="4"
                    VerticalAlignment="Center">
           <ComboBox ItemsSource="{Binding BuiltInPresetNames}"
                     SelectedItem="{Binding SelectedBuiltInPreset}"
-                    Width="120" VerticalAlignment="Center"/>
-          <Button Content="Load" Command="{Binding LoadBuiltInCommand}" ToolTip.Tip="Load built-in"/>
+                    Width="128" VerticalAlignment="Center"
+                    ToolTip.Tip="Changing the list loads the preset. Edits switch it to Custom."/>
           <Button Content="Save…" Command="{Binding SavePresetCommand}"/>
           <Button Content="Open…" Command="{Binding LoadPresetCommand}"/>
           <ComboBox ItemsSource="{Binding CharacterMacroNames}"
@@ -124,12 +124,25 @@
           <Button Content="Macro" Command="{Binding ApplyMacroCommand}"/>
           <ComboBox ItemsSource="{Binding RandomizeScopeNames}"
                     SelectedItem="{Binding SelectedRandomizeScope}" Width="100"/>
-          <Button Content="🎲" Command="{Binding RandomizeToneCommand}" ToolTip.Tip="Randomize"/>
+          <Button Content="🎲" Command="{Binding RandomizeToneCommand}" ToolTip.Tip="Randomize and play"/>
           <Button Content="A" Command="{Binding StoreSlotACommand}" ToolTip.Tip="Store A"/>
           <Button Content="B" Command="{Binding StoreSlotBCommand}" ToolTip.Tip="Store B"/>
           <Button Content="▶A" Command="{Binding PreviewSlotACommand}" IsEnabled="{Binding !IsBusy}"/>
           <Button Content="▶B" Command="{Binding PreviewSlotBCommand}" IsEnabled="{Binding !IsBusy}"/>
         </WrapPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0"
+                    VerticalAlignment="Center">
+          <Button Classes="primary" Content="{Binding PlayToggleLabel}"
+                  Command="{Binding TogglePreviewCommand}"
+                  IsEnabled="{Binding !IsBusy}" MinWidth="88"
+                  ToolTip.Tip="Play / stop preview"/>
+          <Button Classes="primary" Content="Export WAV…"
+                  Command="{Binding ExportWavCommand}"
+                  IsEnabled="{Binding !IsBusy}"/>
+          <Button Classes="primary" Content="Export SFZ…"
+                  Command="{Binding ExportSfzCommand}"
+                  IsEnabled="{Binding !IsBusy}"/>
+        </StackPanel>
       </Grid>
     </Border>
 
@@ -150,25 +163,11 @@
       </Grid>
     </Border>
 
-    <!-- Status + transport -->
+    <!-- Status -->
     <Border DockPanel.Dock="Bottom" Background="#18181B" CornerRadius="6"
             Padding="8,5" Margin="0,2,0,0" BorderBrush="#27272A" BorderThickness="1">
-      <Grid ColumnDefinitions="*,Auto">
-        <TextBlock Text="{Binding StatusText}" Foreground="#A1A1AA" VerticalAlignment="Center"
-                   FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-          <Button Classes="primary" Content="▶ Preview"
-                  Command="{Binding PreviewCommand}"
-                  IsEnabled="{Binding !IsBusy}"/>
-          <Button Content="■ Stop" Command="{Binding StopPreviewCommand}"/>
-          <Button Classes="primary" Content="Export WAV…"
-                  Command="{Binding ExportWavCommand}"
-                  IsEnabled="{Binding !IsBusy}"/>
-          <Button Classes="primary" Content="Export SFZ…"
-                  Command="{Binding ExportSfzCommand}"
-                  IsEnabled="{Binding !IsBusy}"/>
-        </StackPanel>
-      </Grid>
+      <TextBlock Text="{Binding StatusText}" Foreground="#A1A1AA" VerticalAlignment="Center"
+                 FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
     </Border>
 
     <!-- Main controls: four columns (source · tone · motion/FX · library) -->

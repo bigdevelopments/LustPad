@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace LustPad.Core.Synthesis;
 
 /// <summary>RBJ cookbook low-pass biquad with safe coefficient updates.</summary>
@@ -37,6 +39,7 @@ internal sealed class BiquadFilter
         _a2 = a2 / a0;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public float Process(float x)
     {
         float y = _b0 * x + _z1;

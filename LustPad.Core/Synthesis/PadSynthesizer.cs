@@ -27,20 +27,23 @@ public sealed class PadSynthesizer
         var rng = new Random(p.Seed);
         int voices = Math.Clamp(p.UnisonVoices, 1, 16);
 
-        var oscs = new Oscillator[voices];
         var pans = new float[voices];
         var detuneRatios = new float[voices];
         var onsetDelay = new float[voices];
         var onsetFade = new float[voices];
+        var panL = new float[voices];
+        var panR = new float[voices];
 
         float bloomSec = UnisonLayout.BloomSeconds(p);
         float fadeSec = UnisonLayout.FadeSeconds(bloomSec);
 
+        var mainBank = new OscBank(voices, sampleRate, rng);
         for (int v = 0; v < voices; v++)
         {
-            oscs[v] = new Oscillator(sampleRate, rng.NextDouble());
             float pos = UnisonLayout.UnitPosition(v, voices);
             pans[v] = pos * p.StereoSpread;
+            panL[v] = MathF.Sqrt(0.5f * (1f - pans[v]));
+            panR[v] = MathF.Sqrt(0.5f * (1f + pans[v]));
             detuneRatios[v] = CentsToRatio(UnisonLayout.DetuneSpread(v, voices) * p.DetuneCents);
             float edge = UnisonLayout.Edge(v, voices);
             onsetDelay[v] = bloomSec * edge;
@@ -49,16 +52,19 @@ public sealed class PadSynthesizer
 
         // Dual layer B
         int bVoices = p.LayerBLevel > 0.001f ? Math.Clamp(p.LayerBVoices, 1, 8) : 0;
-        var oscsB = new Oscillator[bVoices];
         var pansB = new float[bVoices];
         var detuneB = new float[bVoices];
         var onsetDelayB = new float[bVoices];
         var onsetFadeB = new float[bVoices];
+        var panBL = new float[bVoices];
+        var panBR = new float[bVoices];
+        var bankB = bVoices > 0 ? new OscBank(bVoices, sampleRate, rng) : null;
         for (int v = 0; v < bVoices; v++)
         {
-            oscsB[v] = new Oscillator(sampleRate, rng.NextDouble());
             float pos = UnisonLayout.UnitPosition(v, bVoices);
             pansB[v] = pos * p.StereoSpread * 1.05f;
+            panBL[v] = MathF.Sqrt(0.5f * (1f - pansB[v]));
+            panBR[v] = MathF.Sqrt(0.5f * (1f + pansB[v]));
             detuneB[v] = CentsToRatio(UnisonLayout.DetuneSpread(v, bVoices) * p.LayerBDetuneCents);
             float edge = UnisonLayout.Edge(v, bVoices);
             onsetDelayB[v] = bloomSec * 1.15f * edge;
@@ -135,6 +141,33 @@ public sealed class PadSynthesizer
                 : p.DriftRateHz * 0.73f + 0.01f)
             : 0f;
 
+        chorus.Prepare(p.ChorusMix, p.ChorusRateHz, p.ChorusDepthMs, p.ChorusMode,
+            loopLenSec, p.LockEvolutionToLoop);
+        reverb.Prepare(p.ReverbMix, p.ReverbDecay, p.ReverbDamping, p.ReverbPredelayMs,
+            loopLenSec, p.LockEvolutionToLoop);
+
+        float voiceScale = voices > 0 ? 1f / MathF.Sqrt(voices) * Math.Clamp(p.OscLevel, 0f, 1.5f) : 0f;
+        float bScale = bVoices > 0 ? 1f / MathF.Sqrt(bVoices) : 0f;
+        mainBank.SetGains(panL, panR, voiceScale);
+        bankB?.SetGains(panBL, panBR, bScale);
+        float bGain = p.LayerBLevel * 0.55f;
+        float bCutStatic = Math.Clamp(p.CutoffHz * Math.Clamp(p.LayerBCutoffRatio, 0.5f, 3f), 40f, sampleRate * 0.45f);
+        float fifthRatio = CentsToRatio(700f);
+        float formAmt = Math.Clamp(p.FormantAmount, 0f, 1f);
+        float formMix = formAmt <= 0f ? 0f : MathF.Pow(formAmt, 0.6f);
+        bool doDrive = p.Drive > 0.001f;
+        float drive = 1f + p.Drive * 4f;
+        float driveNorm = doDrive ? SoftClip(drive * 0.7f) : 1f;
+        float width = Math.Clamp(p.StereoWidth, 0f, 2f);
+        float oscLevel = Math.Clamp(p.OscLevel, 0f, 1.5f);
+        int filterUpdate = 0;
+        int bFilterUpdate = 0;
+        int onsetHorizon = 0;
+        for (int v = 0; v < voices; v++)
+            onsetHorizon = Math.Max(onsetHorizon, (int)((onsetDelay[v] + onsetFade[v]) * sampleRate) + 2);
+        for (int v = 0; v < bVoices; v++)
+            onsetHorizon = Math.Max(onsetHorizon, (int)((onsetDelayB[v] + onsetFadeB[v]) * sampleRate) + 2);
+
         for (int i = 0; i < renderSamples; i++)
         {
             // Cooperative cancel so background preview can abandon long jobs quickly.
@@ -171,48 +204,44 @@ public sealed class PadSynthesizer
             }
 
             float left = 0, right = 0;
-            float oscLevel = Math.Clamp(p.OscLevel, 0f, 1.5f);
             if (oscLevel > 0.001f)
             {
-                float voiceScale = 1f / MathF.Sqrt(voices) * oscLevel;
-                for (int v = 0; v < voices; v++)
+                if (i < onsetHorizon)
                 {
-                    float freq = baseFreq * detuneRatios[v] * pitchMod;
-                    float onset = UnisonLayout.OnsetGain(i, sampleRate, onsetDelay[v], onsetFade[v]);
-                    float sample = oscs[v].Next(freq, p.Waveform, pulseWidth) * voiceScale * onset;
-                    float pan = pans[v];
-                    float lGain = MathF.Sqrt(0.5f * (1f - pan));
-                    float rGain = MathF.Sqrt(0.5f * (1f + pan));
-                    left += sample * lGain;
-                    right += sample * rGain;
+                    for (int v = 0; v < voices; v++)
+                        mainBank.SetOnset(v, UnisonLayout.OnsetGain(i, sampleRate, onsetDelay[v], onsetFade[v]));
                 }
+                else if (i == onsetHorizon)
+                    mainBank.SetOnsetAll(1f);
+
+                mainBank.Mix(detuneRatios, baseFreq * pitchMod, p.Waveform, pulseWidth, ref left, ref right);
             }
 
             // Layer B — second body/air stack (pre-main-filter path, own brighter filter)
-            if (bVoices > 0)
+            if (bankB is not null)
             {
-                float bScale = 1f / MathF.Sqrt(bVoices);
                 float bL = 0, bR = 0;
-                for (int v = 0; v < bVoices; v++)
+                if (i < onsetHorizon)
                 {
-                    float freq = baseFreq * detuneB[v] * pitchMod * 1.003f;
-                    float onset = UnisonLayout.OnsetGain(i, sampleRate, onsetDelayB[v], onsetFadeB[v]);
-                    float sample = oscsB[v].Next(freq, p.LayerBWaveform, pulseWidth) * bScale * onset;
-                    float pan = pansB[v];
-                    bL += sample * MathF.Sqrt(0.5f * (1f - pan));
-                    bR += sample * MathF.Sqrt(0.5f * (1f + pan));
+                    for (int v = 0; v < bVoices; v++)
+                        bankB.SetOnset(v, UnisonLayout.OnsetGain(i, sampleRate, onsetDelayB[v], onsetFadeB[v]));
                 }
-                float bCut = Math.Clamp(p.CutoffHz * Math.Clamp(p.LayerBCutoffRatio, 0.5f, 3f), 40f, sampleRate * 0.45f);
-                if ((i % filterUpdateEvery) == 0 || float.IsNaN(lastBCut) ||
-                    MathF.Abs(bCut - lastBCut) > 8f)
+                else if (i == onsetHorizon)
+                    bankB.SetOnsetAll(1f);
+
+                bankB.Mix(detuneB, baseFreq * pitchMod * 1.003f, p.LayerBWaveform, pulseWidth, ref bL, ref bR);
+                if (bFilterUpdate == 0 || float.IsNaN(lastBCut) ||
+                    MathF.Abs(bCutStatic - lastBCut) > 8f)
                 {
-                    filterBL.SetLowPass(bCut, 0.7f);
-                    filterBR.SetLowPass(bCut * 1.02f, 0.7f);
-                    lastBCut = bCut;
+                    filterBL.SetLowPass(bCutStatic, 0.7f);
+                    filterBR.SetLowPass(bCutStatic * 1.02f, 0.7f);
+                    lastBCut = bCutStatic;
                 }
+                bFilterUpdate++;
+                if (bFilterUpdate >= filterUpdateEvery)
+                    bFilterUpdate = 0;
                 bL = filterBL.Process(bL);
                 bR = filterBR.Process(bR);
-                float bGain = p.LayerBLevel * 0.55f;
                 left += bL * bGain;
                 right += bR * bGain;
             }
@@ -226,7 +255,7 @@ public sealed class PadSynthesizer
 
             if (p.FifthLevel > 0.001f)
             {
-                float fifth = fifthOsc.Next(baseFreq * CentsToRatio(700f) * pitchMod, p.Waveform, pulseWidth)
+                float fifth = fifthOsc.Next(baseFreq * fifthRatio * pitchMod, p.Waveform, pulseWidth)
                               * p.FifthLevel * 0.5f;
                 left += fifth * 0.6f;
                 right += fifth * 0.8f;
@@ -284,10 +313,6 @@ public sealed class PadSynthesizer
             //   normal  → main LPF (classic pad body)
             //   formant → bandpass vowel bank (needs full harmonic stack)
             // then crossfade by FormantAmount.
-            float formAmt = Math.Clamp(p.FormantAmount, 0f, 1f);
-            // Concave-up wetness: 0.5 already ~0.7 so the vowel reads before the slider is pegged.
-            float formMix = formAmt <= 0f ? 0f : MathF.Pow(formAmt, 0.6f);
-
             float formL = left;
             float formR = right;
             if (formMix > 0.001f)
@@ -319,22 +344,25 @@ public sealed class PadSynthesizer
                 (formL, formR) = formants.Process(left, right);
             }
 
-            // Normal path: filter envelope + LFO
-            float filtLfo = filterLfo.UnipolarAt(i, p.FilterLfoRateHz);
-            float depthScale = 0.7f + evolution * 0.9f;
-            float lfoOctaves = (filtLfo - 0.5f) * 2f * p.FilterLfoDepth * 2.0f * depthScale;
-            float envOctaves = envLevel * p.FilterEnvAmount * 2f;
-            float cutoff = p.CutoffHz * MathF.Pow(2f, lfoOctaves + envOctaves - p.FilterEnvAmount);
-            cutoff = Math.Clamp(cutoff, 40f, sampleRate * 0.45f);
-
-            // Rebuild coeffs every N samples (offline quality; much cheaper than every sample)
-            if ((i % filterUpdateEvery) == 0 || float.IsNaN(lastCutoff) ||
-                MathF.Abs(cutoff - lastCutoff) > 8f)
+            // Rebuild coeffs every N samples (LFO/env are slow; Pow is not free).
+            if (filterUpdate == 0 || float.IsNaN(lastCutoff))
             {
-                filterL.SetLowPass(cutoff, q);
-                filterR.SetLowPass(cutoff * 1.02f, q);
-                lastCutoff = cutoff;
+                float filtLfo = filterLfo.UnipolarAt(i, p.FilterLfoRateHz);
+                float depthScale = 0.7f + evolution * 0.9f;
+                float lfoOctaves = (filtLfo - 0.5f) * 2f * p.FilterLfoDepth * 2.0f * depthScale;
+                float envOctaves = envLevel * p.FilterEnvAmount * 2f;
+                float cutoff = p.CutoffHz * MathF.Pow(2f, lfoOctaves + envOctaves - p.FilterEnvAmount);
+                cutoff = Math.Clamp(cutoff, 40f, sampleRate * 0.45f);
+                if (float.IsNaN(lastCutoff) || MathF.Abs(cutoff - lastCutoff) > 8f)
+                {
+                    filterL.SetLowPass(cutoff, q);
+                    filterR.SetLowPass(cutoff * 1.02f, q);
+                    lastCutoff = cutoff;
+                }
             }
+            filterUpdate++;
+            if (filterUpdate >= filterUpdateEvery)
+                filterUpdate = 0;
             float normL = filterL.Process(left);
             float normR = filterR.Process(right);
 
@@ -344,11 +372,10 @@ public sealed class PadSynthesizer
             right = normR * inv + formR * formMix;
 
             // Soft drive
-            if (p.Drive > 0.001f)
+            if (doDrive)
             {
-                float drive = 1f + p.Drive * 4f;
-                left = SoftClip(left * drive) / SoftClip(drive * 0.7f);
-                right = SoftClip(right * drive) / SoftClip(drive * 0.7f);
+                left = SoftClip(left * drive) / driveNorm;
+                right = SoftClip(right * drive) / driveNorm;
             }
 
             // Amp LFO (subtle breathing) — absolute time for loop phase match
@@ -360,19 +387,13 @@ public sealed class PadSynthesizer
             right *= amp;
 
             // Chorus (Juno-style BBD; absolute-time LFO for loop lock)
-            (left, right) = chorus.Process(
-                left, right, p.ChorusMix, p.ChorusRateHz, p.ChorusDepthMs, p.ChorusMode, i,
-                loopLenSec, p.LockEvolutionToLoop);
+            (left, right) = chorus.Process(left, right, i);
 
-            // Reverb (predelay + damping + loop-locked tank modulation)
-            (left, right) = reverb.Process(
-                left, right, p.ReverbMix, p.ReverbDecay, p.ReverbDamping, p.ReverbPredelayMs,
-                i, loopLenSec, p.LockEvolutionToLoop);
+            (left, right) = reverb.Process(left, right, i);
 
             // Mid/side stereo width (after space so the room stays coherent)
             if (channels == 2)
             {
-                float width = Math.Clamp(p.StereoWidth, 0f, 2f);
                 float mid = 0.5f * (left + right);
                 float side = 0.5f * (left - right) * width;
                 left = mid + side;
@@ -400,8 +421,7 @@ public sealed class PadSynthesizer
         // Normalize to -1 dBFS peak
         float targetPeak = 0.89f;
         float norm = peak > 1e-6f ? targetPeak / peak : 1f;
-        for (int i = 0; i < raw.Length; i++)
-            raw[i] *= norm;
+        Audio.Simd.Scale(raw, norm);
 
         // Trim to requested duration (keep float buffer for loop processing on full render if needed)
         // We'll pass full render so loop crossfade can use the tail, then trim.
@@ -412,7 +432,12 @@ public sealed class PadSynthesizer
 
     private static float DbToLin(float db) => MathF.Pow(10f, db / 20f);
 
-    private static float SoftClip(float x) => MathF.Tanh(x);
+    /// <summary>Pade tanh; same shape as MathF.Tanh for pad drive levels, much cheaper.</summary>
+    private static float SoftClip(float x)
+    {
+        float x2 = x * x;
+        return x * (27f + x2) / (27f + 9f * x2);
+    }
 }
 
 public sealed class RenderedAudio

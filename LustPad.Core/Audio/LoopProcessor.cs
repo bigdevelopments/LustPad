@@ -49,11 +49,7 @@ public static class LoopProcessor
 
         // Working copy of the export body
         var output = new float[outFrames * channels];
-        for (int i = 0; i < outFrames; i++)
-        {
-            for (int c = 0; c < channels; c++)
-                output[i * channels + c] = audio.Interleaved[i * channels + c];
-        }
+        Array.Copy(audio.Interleaved, output, output.Length);
 
         int loopStart = nominalStart;
         double matchError = 0;
@@ -138,12 +134,13 @@ public static class LoopProcessor
             return (nominalStart, MeasureMismatch(data, channels, outFrames, nominalStart, crossfade));
 
         int coarseStep = Math.Max(1, sampleStep(crossfade));
+        int coarseStride = Math.Max(4, crossfade / 512);
         int best = nominalStart;
         double bestErr = double.MaxValue;
 
         for (int start = minStart; start <= maxStart; start += coarseStep)
         {
-            double err = MeasureMismatch(data, channels, outFrames, start, crossfade);
+            double err = MeasureMismatch(data, channels, outFrames, start, crossfade, coarseStride);
             if (err < bestErr)
             {
                 bestErr = err;
@@ -208,14 +205,24 @@ public static class LoopProcessor
     /// (what must agree for a click-free exclusive-end wrap to <paramref name="loopStart"/>).
     /// </summary>
     private static double MeasureMismatch(
-        float[] data, int channels, int outFrames, int loopStart, int crossfade)
+        float[] data, int channels, int outFrames, int loopStart, int crossfade, int stride = 1)
     {
         if (crossfade < 1 || loopStart < crossfade || outFrames < crossfade)
             return double.MaxValue;
 
+        if (stride < 1) stride = 1;
+
+        if (stride == 1)
+        {
+            int n = crossfade * channels;
+            int endStart = (outFrames - crossfade) * channels;
+            int leadStart = (loopStart - crossfade) * channels;
+            return Simd.SumSqDiff(data.AsSpan(endStart, n), data.AsSpan(leadStart, n));
+        }
+
         double err = 0;
         double e0 = 0, e1 = 0;
-        for (int i = 0; i < crossfade; i++)
+        for (int i = 0; i < crossfade; i += stride)
         {
             int endIdx = outFrames - crossfade + i;
             int leadIdx = loopStart - crossfade + i;
@@ -230,7 +237,6 @@ public static class LoopProcessor
             }
         }
 
-        // Normalise by energy so quieter candidates aren't artificially favoured
         double denom = Math.Sqrt(e0 * e1) + 1e-12;
         return err / denom;
     }

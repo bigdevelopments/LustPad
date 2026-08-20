@@ -20,11 +20,9 @@ internal sealed class Lfo
     public float SinAt(long sampleIndex, float rateHz)
     {
         if (rateHz <= 0.0000001f)
-            return MathF.Sin((float)(_phase0 * Math.PI * 2.0)); // frozen
+            return FastTrig.SinTurns(_phase0); // frozen
 
-        double phase = _phase0 + rateHz * sampleIndex / _sampleRate;
-        phase -= Math.Floor(phase);
-        return MathF.Sin((float)(phase * Math.PI * 2.0));
+        return FastTrig.SinTurns(_phase0 + rateHz * sampleIndex / _sampleRate);
     }
 
     public float UnipolarAt(long sampleIndex, float rateHz) => 0.5f + 0.5f * SinAt(sampleIndex, rateHz);
@@ -33,7 +31,7 @@ internal sealed class Lfo
     public float Next(float rateHz)
     {
         rateHz = Math.Max(0f, rateHz);
-        float value = MathF.Sin((float)(_phase * Math.PI * 2.0));
+        float value = FastTrig.SinTurns(_phase);
         _phase += rateHz / _sampleRate;
         if (_phase >= 1.0)
             _phase -= Math.Floor(_phase);
